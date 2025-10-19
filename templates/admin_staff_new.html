@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Add staff • Staff Admin{% endblock %}
+{% block content %}
+  <h1>Add staff</h1>
+
+  <form class="form" action="/admin/staff/create" method="post">
+    <div class="card">
+      <div class="field">
+        <label class="label" for="given_name">Given name</label>
+        <input class="input" id="given_name" name="given_name" required />
+      </div>
+
+      <div class="field">
+        <label class="label" for="family_name">Family name</label>
+        <input class="input" id="family_name" name="family_name" required />
+      </div>
+
+      <div class="field">
+        <label class="label" for="mobile">Mobile</label>
+        <input class="input" id="mobile" name="mobile" type="tel" placeholder="+61…" required />
+        <div class="hint">Use international format if possible.</div>
+      </div>
+
+      <div class="field">
+        <label class="label" for="email">Email <span class="hint">(optional)</span></label>
+        <input class="input" id="email" name="email" type="email" />
+      </div>
+
+      <div class="field">
+        <label class="label" for="start_date">Start date</label>
+        <input class="input" id="start_date" name="start_date" type="date" value="{{ today }}" required />
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin:0 0 8px 0;">First assignment</h3>
+      <div class="hint">People can only hold one role/location at a time. Adding a new assignment later will end the current one.</div>
+
+      <div class="field">
+        <label class="label" for="primary_role_code">Role</label>
+        <select class="select" id="primary_role_code" name="primary_role_code" required>
+          <option value="">— select —</option>
+          {% for r in roles %}<option value="{{ r.code }}">{{ r.label }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="label" for="location_code">Location</label>
+        <select class="select" id="location_code" name="location_code" required>
+          <option value="">— select —</option>
+          {% for l in locations %}<option value="{{ l.code }}">{{ l.name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="stack" style="margin-top:14px">
+      <button class="btn btn-primary" type="submit">Create staff</button>
+      <a class="btn btn-secondary" href="/admin/staff">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

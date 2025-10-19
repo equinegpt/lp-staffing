@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ s.display_name }} • Staff Admin{% endblock %}
+
+{% block content %}
+
+  {# Title row: name + status on left, smaller Edit button on right #}
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+    <h1 style="display:flex; align-items:center; gap:12px; margin:0;">
+      {{ s.display_name }}
+      <span class="status-pill {{ 'status-ok' if not s.end_date else 'status-bad' }}">
+        {{ 'Active' if not s.end_date else 'Inactive' }}
+      </span>
+    </h1>
+    <a class="btn btn-secondary" href="/admin/staff/{{ s.id }}/edit"
+       style="font-size:14px; padding:6px 12px;">Edit</a>
+  </div>
+
+  {# Two-column info card: contact on left; start/end + action on right #}
+  <div class="card" style="
+        display:grid;
+        grid-template-columns: 1fr 320px;
+        gap:24px;
+        align-items:start;
+        margin-top:12px;
+      ">
+
+    {# Left column — contact #}
+    <div>
+      <div class="field"><span class="label">Mobile</span><div>{{ s.mobile or '—' }}</div></div>
+      <div class="field"><span class="label">Email</span><div>{{ s.email or '—' }}</div></div>
+    </div>
+
+    {# Right column — start/end and end-employment controls #}
+    <div>
+      <div class="field"><span class="label">Start</span><div>{{ s.start_date }}</div></div>
+      <div class="field"><span class="label">End</span><div>{{ s.end_date or '—' }}</div></div>
+
+      <form action="/admin/staff/{{ s.id }}/end" method="post"
+            style="display:flex; gap:8px; justify-content:flex-end; align-items:center; margin-top:8px;">
+        <input class="input" type="date" name="end_date" style="max-width:150px" required />
+        <button class="btn btn-danger" type="submit" style="font-size:14px; padding:6px 12px;">
+          End employment
+        </button>
+      </form>
+
+      {% if s.end_date %}
+        <div style="display:flex; justify-content:flex-end; margin-top:6px;">
+          <a class="btn btn-secondary" href="/admin/staff/{{ s.id }}/reactivate"
+             style="font-size:14px; padding:6px 12px;"
+             onclick="event.preventDefault(); this.nextElementSibling.submit();">Reactivate</a>
+          <form action="/admin/staff/{{ s.id }}/reactivate" method="post" style="display:none"></form>
+        </div>
+      {% endif %}
+
+      <div class="hint" style="text-align:right;">Choose the end date then click “End employment”.</div>
+    </div>
+  </div>
+
+  <h2 style="margin-top:22px">Assignments</h2>
+  {% include "partials/assignments_table.html" with context %}
+
+{% endblock %}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>{% block title %}Staff Admin{% endblock %}</title>
+    <link rel="stylesheet" href="/static/admin.css?v=3"/>
+  </head>
+  <body>
+    <div class="nav">
+      <div class="brand">
+        <span class="dot"></span>
+        <span>Staff Admin</span>
+      </div>
+
+      <!-- Centered logo (place the file at /static/lindsay-park-logo.png or .svg) -->
+      <div class="logo">
+        <img src="/static/lindsay-park-logo.png" alt="Lindsay Park"/>
+      </div>
+
+      <div class="links">
+        <a href="/admin/staff">Staff</a>
+        <a href="/admin/staff/new">Add</a>
+        <a href="/admin/logout">Logout</a>
+      </div>
+    </div>
+
+    <div class="container">
+      {% block content %}{% endblock %}
+      <div class="footer">Built for Lindsay Park</div>
+    </div>
+  </body>
+</html>

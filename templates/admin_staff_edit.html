@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ s.display_name }} • Staff Admin{% endblock %}
+{% block content %}
+  <h1>Edit staff</h1>
+
+  <form class="form" action="/admin/staff/{{ s.id }}/update" method="post">
+    <div class="card">
+      <div class="field">
+        <label class="label" for="given_name">Given name</label>
+        <input class="input" id="given_name" name="given_name" value="{{ s.given_name }}" required />
+      </div>
+
+      <div class="field">
+        <label class="label" for="family_name">Family name</label>
+        <input class="input" id="family_name" name="family_name" value="{{ s.family_name }}" required />
+      </div>
+
+      <div class="field">
+        <label class="label" for="mobile">Mobile</label>
+        <input class="input" id="mobile" name="mobile" type="tel" value="{{ s.mobile }}" required />
+      </div>
+
+      <div class="field">
+        <label class="label" for="email">Email <span class="hint">(optional)</span></label>
+        <input class="input" id="email" name="email" type="email" value="{{ s.email or '' }}" />
+      </div>
+
+      <div class="field">
+        <label class="label" for="start_date">Start date</label>
+        <input class="input" id="start_date" name="start_date" type="date" value="{{ s.start_date }}" required />
+      </div>
+
+      <div class="field">
+        <label class="label" for="end_date">End date <span class="hint">(optional)</span></label>
+        <input class="input" id="end_date" name="end_date" type="date" value="{{ s.end_date or '' }}" />
+        <div class="hint">Leave blank if still employed.</div>
+      </div>
+    </div>
+
+    <div class="stack" style="margin-top:14px">
+      <button class="btn btn-primary" type="submit">Save changes</button>
+      <a class="btn btn-secondary" href="/admin/staff/{{ s.id }}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

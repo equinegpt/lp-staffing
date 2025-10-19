@@ -1,0 +1,39 @@
+{% for r in staff %}
+<tr class="border-t">
+  <!-- Name (click to open profile) -->
+  <td class="px-3 py-2">
+    <a class="text-blue-700 underline" href="/admin/staff/{{ r.id }}">
+      {{ r.display_name or (r.given_name ~ ' ' ~ r.family_name) }}
+    </a>
+  </td>
+
+  <!-- Role -->
+  <td class="px-3 py-2">
+    {{ r.role_label or r.role_code or '—' }}
+  </td>
+
+  <!-- Location -->
+  <td class="px-3 py-2">
+    {{ r.location_code or '—' }}
+  </td>
+
+  <!-- Mobile -->
+  <td class="px-3 py-2">
+    {{ r.mobile or '—' }}
+  </td>
+
+  <!-- Status -->
+  <td class="px-3 py-2">
+    {% if r.is_active %}
+      <span class="pill ok">Active</span>
+    {% else %}
+      <span class="pill badsoft">Inactive</span>
+    {% endif %}
+  </td>
+</tr>
+{% endfor %}
+{% if staff|length == 0 %}
+<tr>
+  <td colspan="5" class="px-3 py-6 text-center text-gray-500">No matches.</td>
+</tr>
+{% endif %}

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Staff · {{ day }}{% endblock %}
+
+{% block content %}
+<h1>Staff active on {{ day }}</h1>
+
+<div class="toolbar">
+  <form class="filters" method="get" action="/admin/staff">
+    <div class="control">
+      <label>Date</label>
+      <input type="date" name="d" value="{{ day }}"/>
+    </div>
+
+    <div class="control">
+      <label>Role</label>
+      <select name="role">
+        <option value="">Any role</option>
+        {% for r in roles %}
+          <option value="{{ r.code }}" {% if active_role == r.code %}selected{% endif %}>{{ r.code }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="control">
+      <label>Location</label>
+      <select name="location">
+        <option value="">Any location</option>
+        {% for l in locations %}
+          <option value="{{ l.code }}" {% if active_loc == l.code %}selected{% endif %}>{{ l.code }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="control">
+      <label>Status</label>
+      <select name="status">
+        <option value="" {% if not status %}selected{% endif %}>Any status</option>
+        <option value="active"   {% if status=='active' %}selected{% endif %}>Active</option>
+        <option value="inactive" {% if status=='inactive' %}selected{% endif %}>Inactive</option>
+      </select>
+    </div>
+
+    <div class="control">
+      <label>Search</label>
+      <input
+        type="text"
+        name="q"
+        value="{{ q }}"
+        placeholder="name or mobile"
+        onkeydown="if(event.key==='Enter'){this.form.submit();}"
+      />
+    </div>
+
+    <div class="control">
+      <label>&nbsp;</label>
+      <button class="btn btn-outline" type="submit">Apply</button>
+    </div>
+  </form>
+
+  <div class="actions-right">
+    <a class="btn btn-green" href="/admin/staff/new">+ Add staff</a>
+    <a class="btn btn-outline"
+       href="/admin/staff/export.csv?d={{ day }}&role={{ active_role or '' }}&location={{ active_loc or '' }}&status={{ status or '' }}&q={{ q }}">
+      Export CSV
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Role</th>
+        <th>Location</th>
+        <th>Mobile</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in staff %}
+        <tr>
+          <td><a href="/admin/staff/{{ r.id }}">{{ r.display_name }}</a></td>
+          <td>{{ r.role_label or r.role_code or '—' }}</td>
+          <td>{{ r.location_code or '—' }}</td>
+          <td>{{ r.mobile }}</td>
+          <td>
+            {% if r.is_active %}
+              <span class="pill pill-ok">Active</span>
+            {% else %}
+              <span class="pill pill-muted">Inactive</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No staff match your filters.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

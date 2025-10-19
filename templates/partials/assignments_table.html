@@ -1,0 +1,83 @@
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Role</th>
+        <th>Location</th>
+        <th>Start</th>
+        <th>End</th>
+        <th style="width:240px; text-align:right;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in assignments %}
+        <tr class="border-t">
+          <td class="px-3 py-2">{{ a.role_label }} ({{ a.role_code }})</td>
+          <td class="px-3 py-2">{{ a.location_code or '—' }}</td>
+          <td class="px-3 py-2">{{ a.effective_start }}</td>
+          <td class="px-3 py-2">{{ a.effective_end or '—' }}</td>
+          <td class="px-3 py-2" style="text-align:right;">
+            {% if not a.effective_end %}
+              <form action="/admin/staff/{{ s.id }}/assign/{{ a.id }}/end" method="post"
+                    style="display:flex; gap:8px; justify-content:flex-end; align-items:center;">
+                <input class="input" type="date" name="end_date" style="max-width:150px" required />
+                <button class="btn btn-secondary" type="submit" style="font-size:14px; padding:6px 12px;">
+                  End
+                </button>
+              </form>
+            {% else %}
+              <span class="hint">Ended</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="5" class="px-3 py-6" style="text-align:center;">
+            <span class="hint">No assignments yet.</span>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <hr style="border:none;border-top:1px solid #eceef0;margin:14px 0">
+
+  <form class="form" action="/admin/staff/{{ s.id }}/assign" method="post">
+    <div class="field">
+      <label class="label" for="role_code">Role</label>
+      <select class="select" id="role_code" name="role_code" required>
+        <option value="">— select —</option>
+        {% for r in roles %}
+          <option value="{{ r.code }}">{{ r.label }} — {{ r.code }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="label" for="location_code">Location <span class="hint">(required)</span></label>
+      <select class="select" id="location_code" name="location_code" required>
+        <option value="">— select —</option>
+        {% for l in locations %}
+          <option value="{{ l.code }}">{{ l.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="label" for="effective_start">Start</label>
+      <input class="input" id="effective_start" name="effective_start" type="date" required />
+    </div>
+
+    <div class="field">
+      <label class="label" for="effective_end">End <span class="hint">(optional)</span></label>
+      <input class="input" id="effective_end" name="effective_end" type="date" />
+    </div>
+
+    <input type="hidden" name="priority" value="0" />
+
+    <div class="stack" style="margin-top:6px">
+      <button class="btn btn-primary" type="submit">Add assignment</button>
+      <div class="hint">Only one active role/location at a time — adding a new one should end the current one.</div>
+    </div>
+  </form>
+</div>
