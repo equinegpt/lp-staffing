@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: lp-staffing-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lp-staffing-db
+          property: connectionString
+      - key: ADMIN_WEB_PASSWORD
+        # set this in the dashboard if you don't want to commit it here
+        sync: false
+      - key: ADMIN_WEB_SECRET
+        generateValue: true
+      - key: ADMIN_API_KEY
+        sync: false
+
+databases:
+  - name: lp-staffing-db
+    plan: free
