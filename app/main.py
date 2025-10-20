@@ -6,11 +6,13 @@ from datetime import date as _date, timedelta
 from uuid import UUID as _UUID
 
 import sqlalchemy as sa
+from sqlalchemy.orm import Session
 from fastapi import (
     FastAPI, Query, Header, HTTPException, Depends,
     Request, Form, APIRouter
 )
 from fastapi import status as http_status  # <-- correct status import
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -114,27 +116,40 @@ def _bootstrap_schema():
         c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_role        ON staff_role_assignment (role_id)")
         c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_location    ON staff_role_assignment (location_id)")
 
-        # Seed ROLES (idempotent)
-        c.exec_driver_sql("""
-        INSERT INTO role (code,label) VALUES
-          ('RIDER','Rider'),
-          ('STRAPPER','Strapper'),
-          ('MEDIA','Media'),
-          ('TREADMILL','Treadmill'),
-          ('WATERWALKERS','WaterWalkers'),
-          ('FARRIER','Farrier'),
-          ('VET','Vet')
-        ON CONFLICT (code) DO NOTHING;
-        """)
+# ----- Roles (seed + refresh labels) -----
+c.exec_driver_sql("""
+INSERT INTO role (code, label) VALUES
+  ('RIDER','Rider'),
+  ('STRAPPER','Strapper'),
+  ('MEDIA','Media'),
+  ('TREADMILL','Treadmill'),
+  ('WATERWALKERS','WaterWalkers'),
+  ('FARRIER','Farrier'),
+  ('VET','Vet')
+ON CONFLICT (code) DO UPDATE SET label = EXCLUDED.label
+""")
 
-        # Seed LOCATIONS (idempotent)
-        c.exec_driver_sql("""
-        INSERT INTO location (code,name,timezone) VALUES
-          ('FARM','Farm','Australia/Melbourne'),
-          ('FLEMINGTON','Flemington','Australia/Melbourne'),
-          ('PAKENHAM','Pakenham','Australia/Melbourne')
-        ON CONFLICT (code) DO NOTHING;
-        """)
+# ----- Locations (seed + refresh names) -----
+c.exec_driver_sql("""
+INSERT INTO location (code, name, timezone) VALUES
+  ('FARM','Farm','Australia/Melbourne'),
+  ('FLEMINGTON','Flemington','Australia/Melbourne'),
+  ('PAKENHAM','Pakenham','Australia/Melbourne')
+ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, timezone = EXCLUDED.timezone
+""")
+
+# OPTIONAL: prune *unused* deprecated codes so they stop cluttering lists.
+# (If a code has assignments, we keep it for history; it just won’t show in UI.)
+c.exec_driver_sql("""
+DELETE FROM role r
+ WHERE r.code NOT IN ('RIDER','STRAPPER','MEDIA','TREADMILL','WATERWALKERS','FARRIER','VET')
+   AND NOT EXISTS (SELECT 1 FROM staff_role_assignment a WHERE a.role_id = r.id)
+""")
+c.exec_driver_sql("""
+DELETE FROM location l
+ WHERE l.code NOT IN ('FARM','FLEMINGTON','PAKENHAM')
+   AND NOT EXISTS (SELECT 1 FROM staff_role_assignment a WHERE a.location_id = l.id)
+""")
 
 # Lifespan so bootstrapping happens safely before the app serves
 @asynccontextmanager
@@ -193,6 +208,19 @@ def staff_to_dict(r: Dict) -> Dict:
         "is_active": bool(r.get("is_active", True)),
         "notes": None,
     }
+def staff_to_dict(r):
+    return {
+        "id": str(getattr(r, "id", "")),
+        "first_name": getattr(r, "first_name", None),
+        "last_name": getattr(r, "last_name", None),
+        "role": getattr(r, "role", None),
+        "phone": getattr(r, "phone", None),
+        "email": getattr(r, "email", None),
+        "is_active": bool(getattr(r, "is_active", True)),
+        "notes": getattr(r, "notes", None),
+    }
+
+api = APIRouter(prefix="/api", tags=["api"])
 
 class StaffCreate(BaseModel):
     given_name: str
@@ -477,6 +505,66 @@ def register_device(payload: DeviceCreate):
         """), {"sid": payload.staff_id, "pf": payload.platform, "tk": payload.token})
     return {"ok": True}
 
+@api.get("/health")
+def api_health():
+    return {"ok": True}
+
+@api.get("/staff")
+def api_staff_list(db: Session = Depends(get_session)):
+    try:
+        rows = db.scalars(sa.select(Staff).order_by(Staff.last_name, Staff.first_name)).all()
+        return [staff_to_dict(r) for r in rows]
+    except Exception as e:
+        # ensures JSON error instead of 500 template
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api.post("/staff")
+async def api_staff_create(request: Request, db: Session = Depends(get_session)):
+    data = await request.json()
+    # accept both camelCase and snake_case from clients
+    obj = Staff(
+        first_name=data.get("first_name") or data.get("firstName"),
+        last_name=data.get("last_name") or data.get("lastName"),
+        role=data.get("role"),
+        phone=data.get("phone"),
+        email=data.get("email"),
+        is_active=(data.get("is_active")
+                   if "is_active" in data else data.get("isActive", True)),
+        notes=data.get("notes"),
+    )
+    db.add(obj); db.commit(); db.refresh(obj)
+    return JSONResponse(staff_to_dict(obj), status_code=http_status.HTTP_201_CREATED)
+
+@api.put("/staff/{staff_id}")
+async def api_staff_update(staff_id: str, request: Request, db: Session = Depends(get_session)):
+    data = await request.json()
+    obj = db.get(Staff, staff_id) or db.scalar(sa.select(Staff).where(Staff.id == staff_id))
+    if not obj:
+        raise HTTPException(status_code=404, detail="Staff not found")
+
+    # patch fields
+    mapping = {
+        "first_name": "first_name", "firstName": "first_name",
+        "last_name": "last_name",   "lastName": "last_name",
+        "role": "role", "phone": "phone", "email": "email",
+        "is_active": "is_active", "isActive": "is_active",
+        "notes": "notes",
+    }
+    for k_api, k_model in mapping.items():
+        if k_api in data:
+            setattr(obj, k_model, data[k_api])
+
+    db.add(obj); db.commit(); db.refresh(obj)
+    return staff_to_dict(obj)
+
+@api.delete("/staff/{staff_id}")
+def api_staff_delete(staff_id: str, db: Session = Depends(get_session)):
+    obj = db.get(Staff, staff_id) or db.scalar(sa.select(Staff).where(Staff.id == staff_id))
+    if not obj:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    db.delete(obj); db.commit()
+    return {"ok": True}
+
 # ----------------------- ADMIN WEB (APIRouter) -----------------------
 admin = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -617,8 +705,8 @@ def admin_staff_list(request: Request,
         day = _date.today()
 
     with engine.connect() as c:
-        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
-        locs  = c.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
+        roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
+        locs  = c.execute(sa.text(f"SELECT code,name  FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
 
     staff_rows = _fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
 
@@ -764,8 +852,9 @@ def admin_staff_new(request: Request):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     with engine.connect() as c:
-        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
-        locs  = c.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
+        roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
+        locs  = c.execute(sa.text(f"SELECT code,name  FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
+
     return templates.TemplateResponse("admin_staff_new.html", {
         "request": request, "roles": roles, "locations": locs,
         "today": _date.today().isoformat(), "now": _date.today().isoformat()
@@ -866,8 +955,8 @@ def admin_staff_detail(request: Request, staff_id: str):
             return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
         assignments = _fetch_assignments_for(c, staff_id)
-        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
-        locs  = c.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
+        roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
+        locs  = c.execute(sa.text(f"SELECT code,name  FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
 
     return templates.TemplateResponse("admin_staff_detail.html", {
         "request": request, "s": s, "assignments": assignments, "roles": roles, "locations": locs
@@ -1099,6 +1188,7 @@ def admin_staff_update(
 
 # Register router
 app.include_router(admin)
+app.include_router(api)
 
 # Root redirect
 @app.get("/")
