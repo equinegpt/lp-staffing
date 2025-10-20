@@ -19,31 +19,45 @@ from pydantic import BaseModel, EmailStr, field_validator
 from dotenv import load_dotenv
 
 # ----------------------- ENV & DB -----------------------
+import os, secrets
+from pathlib import Path
+from dotenv import load_dotenv
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(dotenv_path=ROOT_DIR / ".env", override=True)  # ok if missing in prod
+load_dotenv(dotenv_path=ROOT_DIR / ".env", override=True)  # ok if missing on Render
 
-def _env(name: str, default: str = "") -> str:
+def env(name: str, default: str | None = None) -> str | None:
     v = os.getenv(name)
-    return v if v is not None else default
+    return v if (v is not None and v != "") else default
 
-DATABASE_URL = _env("DATABASE_URL")
+DATABASE_URL = env("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL env var is required")
 
-# Normalize & force psycopg v3 driver for SQLAlchemy
+# Normalize to psycopg v3 driver for SQLAlchemy
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 if DATABASE_URL.startswith("postgresql://") and "+psycopg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
-ADMIN_API_KEY      = _env("ADMIN_API_KEY")
-ADMIN_WEB_PASSWORD = _env("ADMIN_WEB_PASSWORD")
-# Use a stable secret in prod (from env); fall back to a dev-only constant locally
-ADMIN_WEB_SECRET   = _env("ADMIN_WEB_SECRET", "dev-secret")
+ADMIN_API_KEY      = env("ADMIN_API_KEY", "")
+ADMIN_WEB_PASSWORD = env("ADMIN_WEB_PASSWORD", "")
 
-engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
+# ALWAYS define this. Use env if present; else generate one and keep it in env for the process.
+ADMIN_WEB_SECRET = env("ADMIN_WEB_SECRET") or os.environ.setdefault(
+    "ADMIN_WEB_SECRET", secrets.token_urlsafe(32)
+)
+
+print("DB driver ->", "postgresql+psycopg" if "+psycopg" in DATABASE_URL else "postgresql")
+print("Session secret source:", "env" if os.getenv("ADMIN_WEB_SECRET") else "generated")
 
 # ----------------------- APP & MIDDLEWARE -----------------------
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
 app = FastAPI(title="Staff Registry")
 
 app.add_middleware(
@@ -57,7 +71,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# sessions (needs ADMIN_WEB_SECRET defined above)
+# ✅ ADMIN_WEB_SECRET is guaranteed to exist here
 app.add_middleware(SessionMiddleware, secret_key=ADMIN_WEB_SECRET, same_site="lax")
 
 # ----------------------- STATIC & TEMPLATES -----------------------
