@@ -322,3 +322,18 @@ input[type="date"] { padding:8px 10px; }
   .card.two-col { grid-template-columns: 1fr; }
   .end-form { justify-content: flex-start; }
 }
+/* Login polish */
+.container.narrow { max-width: 520px; margin: 56px auto; }
+.card.form { padding: 28px 24px; }
+.header h1 { margin: 0 0 4px; font-size: 28px; }
+.header .sub { margin: 0 0 16px; color: #667085; }
+.input-wrap { position: relative; }
+.input-wrap .input { width: 100%; padding-right: 64px; }
+.input-wrap .ghost.small {
+  position: absolute; right: 6px; top: 6px; padding: 6px 10px;
+  border-radius: 8px; font-size: 12px;
+}
+.actions { margin-top: 8px; display: flex; gap: 8px; }
+.alert { padding: 10px 12px; border-radius: 10px; margin: 8px 0 16px; }
+.alert-bad { color: #7a1212; background: #fdecec; border: 1px solid #f8d0d0; }
+.madeby { text-align: center; color:#667085; margin-top: 18px; }

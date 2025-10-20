@@ -1,12 +1,51 @@
-{% extends "base.html" %}
-{% block title %}Login — Staff Admin{% endblock %}
-{% block content %}
-  <div class="card" style="max-width:440px;margin:40px auto">
-    <h1>Admin Login</h1>
-    {% if error %}<p style="color:#b91c1c">{{ error }}</p>{% endif %}
-    <form method="post" action="/admin/login">
-      <div class="form-row"><label>Password</label><input type="password" name="password" required></div>
-      <div class="form-row"><label></label><button class="btn" type="submit">Sign in</button></div>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Admin Login</title>
+  <link rel="stylesheet" href="/static/admin.css?v=3">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body class="page">
+  <main class="container narrow">
+    <form class="card form" method="post" action="/admin/login" autocomplete="off">
+      <div class="header">
+        <h1>Admin Login</h1>
+        <p class="sub">Enter the admin password to continue.</p>
+      </div>
+
+      {% if error %}
+        <div class="alert alert-bad">{{ error }}</div>
+      {% endif %}
+
+      <div class="field">
+        <label class="label" for="password">Password</label>
+        <div class="input-wrap">
+          <input class="input" id="password" type="password" name="password" required autofocus />
+          <button class="ghost small" type="button" id="togglePw" aria-label="Show password">Show</button>
+        </div>
+        <div class="hint">Keep this private. Contact ops if you need a reset.</div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Sign in</button>
+      </div>
     </form>
-  </div>
-{% endblock %}
+
+    <footer class="madeby">Built for Lindsay Park</footer>
+  </main>
+
+  <script>
+    (function () {
+      const pw = document.getElementById('password');
+      const t  = document.getElementById('togglePw');
+      t.addEventListener('click', () => {
+        const show = pw.type === 'password';
+        pw.type = show ? 'text' : 'password';
+        t.textContent = show ? 'Hide' : 'Show';
+        t.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      });
+    }());
+  </script>
+</body>
+</html>
