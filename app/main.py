@@ -4,6 +4,7 @@ from typing import Optional, List, Dict
 from datetime import date as _date
 import os
 import io, csv
+from uuid import UUID as _UUID
 
 import sqlalchemy as sa
 from fastapi import (
@@ -24,7 +25,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(dotenv_path=ROOT_DIR / ".env", override=True)  # ok if missing on Render
+load_dotenv(dotenv_path=ROOT_DIR / ".env", override=False)  # ok if missing on Render
 
 def env(name: str, default: str | None = None) -> str | None:
     v = os.getenv(name)
@@ -133,6 +134,13 @@ class RoleAssignCreate(BaseModel):
 
 class EndAssignment(BaseModel):
     end_date: _date  # default provided in route
+
+def _validate_uuid(s: str) -> str:
+    try:
+        _UUID(s)  # just validate; we still return the original string
+        return s
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid staff id")
 
 # ----------------------- JSON API -----------------------
 @app.get("/healthz")
@@ -378,7 +386,7 @@ admin = APIRouter(prefix="/admin", tags=["admin"])
 def _admin_only(request: Request) -> bool:
     return bool(request.session.get("admin"))
 
-def _fetch_assignments_for(conn, staff_id: UUID):
+def _fetch_assignments_for(conn, staff_id: str):
     return conn.execute(sa.text("""
       SELECT a.id, r.code AS role_code, r.label AS role_label,
              COALESCE(l.code,'—') AS location_code,
@@ -631,7 +639,7 @@ def admin_staff_export_csv(request: Request,
     )
 
 @admin.get("/staff/{staff_id}", response_class=HTMLResponse)
-def admin_staff_detail(request: Request, staff_id: UUID):
+def admin_staff_detail(request: Request, staff_id: str):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -652,7 +660,7 @@ def admin_staff_detail(request: Request, staff_id: UUID):
     })
 
 @admin.get("/staff/{staff_id}/assignments/table", response_class=HTMLResponse)
-def admin_assignments_table(request: Request, staff_id: UUID):
+def admin_assignments_table(request: Request, staff_id: str):
     if not _admin_only(request):
         return HTMLResponse("", status_code=401)
     with engine.connect() as c:
@@ -759,7 +767,7 @@ def admin_add_assignment(
 
 @admin.post("/staff/{staff_id}/assign/{assignment_id}/end")
 def admin_end_assignment(
-    request: Request, staff_id: UUID, assignment_id: str,
+    request: Request, staff_id: str, assignment_id: str,
     end_date: Optional[str] = Form(None)
 ):
     if not _admin_only(request):
@@ -811,7 +819,7 @@ def admin_end_staff(request: Request, staff_id: str, end_date: str = Form("")):
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 @admin.post("/staff/{staff_id}/reactivate")
-def admin_reactivate_staff(request: Request, staff_id: UUID):
+def admin_reactivate_staff(request: Request, staff_id: str):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
     with engine.begin() as c:
@@ -819,7 +827,7 @@ def admin_reactivate_staff(request: Request, staff_id: UUID):
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 @admin.get("/staff/{staff_id}/edit", response_class=HTMLResponse)
-def admin_staff_edit(request: Request, staff_id: UUID):
+def admin_staff_edit(request: Request, staff_id: str):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
     with engine.connect() as c:
@@ -833,7 +841,7 @@ def admin_staff_edit(request: Request, staff_id: UUID):
 
 @admin.post("/staff/{staff_id}/update")
 def admin_staff_update(
-    request: Request, staff_id: UUID,
+    request: Request, staff_id: str,
     given_name: str = Form(...),
     family_name: str = Form(...),
     mobile: str = Form(...),
