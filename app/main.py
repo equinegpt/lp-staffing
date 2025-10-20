@@ -24,13 +24,25 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 env_path = ROOT_DIR / ".env"
 load_dotenv(dotenv_path=env_path, override=True)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL missing in .env")
+from sqlalchemy.engine.url import make_url
 
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
-ADMIN_WEB_PASSWORD = os.getenv("ADMIN_WEB_PASSWORD", "")
-ADMIN_WEB_SECRET = os.getenv("ADMIN_WEB_SECRET", "dev-secret")
+raw_url = (os.getenv("DATABASE_URL") or "").strip()
+if not raw_url:
+    raise RuntimeError("DATABASE_URL missing in env")
+
+# Normalize e.g. postgres:// -> postgresql://
+if raw_url.startswith("postgres://"):
+    raw_url = "postgresql://" + raw_url[len("postgres://"):]
+
+# Force the SQLAlchemy driver to psycopg (v3) no matter what
+u = make_url(raw_url)
+if u.drivername.startswith("postgres"):
+    u = u.set(drivername="postgresql+psycopg")
+
+# Optional tiny debug (prints only the driver name, not secrets)
+print("DB driver ->", u.drivername)  # should print: postgresql+psycopg
+
+DATABASE_URL = str(u)
 
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
 
