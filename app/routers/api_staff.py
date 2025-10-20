@@ -5,6 +5,7 @@ from datetime import date as _date
 
 import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException, Request, status as http_status
+from app.core.constants import ROLE_WHERE, LOC_WHERE
 
 from app.core.db import engine
 
@@ -108,6 +109,26 @@ async def api_staff_update(staff_id: str, request: Request):
         """), {"sid": staff_id}).mappings().first()
 
     return _to_api(row) if row else (_ for _ in ()).throw(HTTPException(status_code=404, detail="Staff not found"))
+
+@router.get("/meta/roles")
+def meta_roles():
+    with engine.connect() as c:
+        rows = c.execute(sa.text(f"""
+            SELECT code, label FROM role
+             WHERE {ROLE_WHERE}
+             ORDER BY label
+        """)).mappings().all()
+    return [{"code": r["code"], "label": r["label"]} for r in rows]
+
+@router.get("/meta/locations")
+def meta_locations():
+    with engine.connect() as c:
+        rows = c.execute(sa.text(f"""
+            SELECT code, name AS label FROM location
+             WHERE {LOC_WHERE}
+             ORDER BY name
+        """)).mappings().all()
+    return [{"code": r["code"], "label": r["label"]} for r in rows]
 
 @router.delete("/staff/{staff_id}")
 def api_staff_delete(staff_id: str):

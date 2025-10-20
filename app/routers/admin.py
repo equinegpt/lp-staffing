@@ -205,7 +205,6 @@ def admin_staff_create(
 @router.post("/staff")
 @router.post("/staff/")
 async def admin_staff_create_json(request: Request):
-    # Only serve JSON when explicitly requested
     if "application/json" not in (request.headers.get("accept") or ""):
         return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -215,10 +214,18 @@ async def admin_staff_create_json(request: Request):
     phone = data.get("phone") or data.get("mobile")
     email = data.get("email")
     is_active = _as_bool(data.get("is_active", data.get("isActive", True)), True)
+
+    # NEW: allow client to provide start date (yyyy-mm-dd). Default: today.
+    start_str = data.get("start_date") or data.get("startDate")
+    today = _date.today()
+    try:
+        sd = _date.fromisoformat(start_str) if start_str else today
+    except Exception:
+        sd = today
+
     if not (gn and fn and phone):
         return HTMLResponse("first_name, last_name, phone required", status_code=400)
 
-    today = _date.today()
     display_name = f"{gn} {fn}".strip()
 
     with engine.begin() as c:
@@ -231,7 +238,7 @@ async def admin_staff_create_json(request: Request):
             VALUES (:gn,:fn,:dn,:m,:e,:sd,:ed)
             RETURNING id, given_name, family_name, mobile, email, (end_date IS NULL) AS is_active
         """), {"gn": gn, "fn": fn, "dn": display_name, "m": phone.strip(),
-               "e": email, "sd": today, "ed": (None if is_active else today)}).mappings().first()
+               "e": email, "sd": sd, "ed": (None if is_active else sd)}).mappings().first()
 
     return JSONResponse(staff_to_api(row), status_code=http_status.HTTP_201_CREATED)
 
