@@ -1,16 +1,15 @@
-# app/main.py
+# ======================= app/main.py (top section) =======================
+import os, io, csv, secrets
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import date as _date, timedelta
-import os, secrets, io, csv
 from uuid import UUID as _UUID
 
 import sqlalchemy as sa
 from fastapi import (
     FastAPI, Query, Header, HTTPException, Depends,
-    Request, Form, APIRouter
+    Request, Form, status, APIRouter
 )
-from starlette import status as http_status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -18,16 +17,17 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, field_validator
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
-# ----------------------- ENV & DB -----------------------
+# ----------------------- ENV -----------------------
 ROOT_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(dotenv_path=ROOT_DIR / ".env", override=False)  # ok if missing on Render
+load_dotenv(dotenv_path=ROOT_DIR / ".env", override=False)  # fine if missing on Render
 
-def _env(name: str, default: Optional[str] = None) -> Optional[str]:
+def env(name: str, default: str | None = None) -> str | None:
     v = os.getenv(name)
     return v if (v is not None and v != "") else default
 
-DATABASE_URL = _env("DATABASE_URL")
+DATABASE_URL = env("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL env var is required")
 
@@ -37,35 +37,36 @@ if DATABASE_URL.startswith("postgres://"):
 if DATABASE_URL.startswith("postgresql://") and "+psycopg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
-ADMIN_API_KEY      = _env("ADMIN_API_KEY", "")
-ADMIN_WEB_PASSWORD = _env("ADMIN_WEB_PASSWORD", "")
-
-# Always define this: use env if present; else generate one for this process.
-ADMIN_WEB_SECRET = _env("ADMIN_WEB_SECRET") or os.environ.setdefault(
+ADMIN_API_KEY      = env("ADMIN_API_KEY", "")
+ADMIN_WEB_PASSWORD = env("ADMIN_WEB_PASSWORD", "")
+ADMIN_WEB_SECRET   = env("ADMIN_WEB_SECRET") or os.environ.setdefault(
     "ADMIN_WEB_SECRET", secrets.token_urlsafe(32)
 )
 
 print("DB driver ->", "postgresql+psycopg" if "+psycopg" in DATABASE_URL else "postgresql")
 print("Session secret source:", "env" if os.getenv("ADMIN_WEB_SECRET") else "generated")
 
-# Create the engine BEFORE any route uses it
+# ----------------------- DB ENGINE -----------------------
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
 
-# --- bootstrap schema on first run (idempotent) ---
+# ----------------------- SCHEMA BOOTSTRAP -----------------------
 def _bootstrap_schema():
+    """Create tables / seed minimal data. Safe to run repeatedly."""
     with engine.begin() as c:
-        # UUIDs
-        c.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+        # Extensions (ignore if not permitted)
+        try:
+            c.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+        except Exception:
+            pass
 
-        # core tables
+        # Tables
         c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS role (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
           code TEXT UNIQUE NOT NULL,
           label TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-        """)
+        )""")
         c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS location (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -73,8 +74,7 @@ def _bootstrap_schema():
           name TEXT NOT NULL,
           timezone TEXT NOT NULL DEFAULT 'Australia/Melbourne',
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-        """)
+        )""")
         c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS staff (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -87,8 +87,7 @@ def _bootstrap_schema():
           end_date   DATE,
           status TEXT NOT NULL DEFAULT 'ACTIVE',
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-        """)
+        )""")
         c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS staff_role_assignment (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -99,8 +98,7 @@ def _bootstrap_schema():
           effective_end   DATE,
           priority INTEGER NOT NULL DEFAULT 0,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-        """)
+        )""")
         c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS device (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -108,14 +106,14 @@ def _bootstrap_schema():
           platform TEXT NOT NULL CHECK (platform IN ('iOS','Android')),
           token TEXT NOT NULL UNIQUE,
           last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-        """)
-        # helpful indexes
+        )""")
+
+        # Indexes
         c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_staff_dates  ON staff_role_assignment (staff_id, effective_start, effective_end)")
         c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_role        ON staff_role_assignment (role_id)")
         c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_location    ON staff_role_assignment (location_id)")
 
-        # seed minimal data (safe to re-run)
+        # Seed data (idempotent)
         c.exec_driver_sql("""
         INSERT INTO role (code,label) VALUES
           ('RIDER','Rider'),
@@ -130,12 +128,14 @@ def _bootstrap_schema():
         ON CONFLICT (code) DO NOTHING
         """)
 
-@app.on_event("startup")
-def _startup_bootstrap():
+# Lifespan instead of @app.on_event so we don't trip ordering issues
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     _bootstrap_schema()
+    yield
 
 # ----------------------- APP & MIDDLEWARE -----------------------
-app = FastAPI(title="Staff Registry")
+app = FastAPI(title="Staff Registry", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -158,6 +158,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 TEMPLATES_DIR = ROOT_DIR / "templates"
 TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+# ===================== end of replacement block =====================
 
 # ----------------------- HELPERS & MODELS -----------------------
 def require_admin(x_api_key: str = Header(default="")):
