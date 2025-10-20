@@ -28,15 +28,14 @@ def _as_bool(v: Any, default: bool = True) -> bool:
     if isinstance(v, str): return v.strip().lower() in {"1","true","t","yes","y"}
     return default
 
-def staff_to_api(row: Mapping[str, Any]) -> dict:
-    """Map DB/aggregated row -> API shape expected by iOS."""
+def staff_to_api(row):
     return {
         "id": str(row.get("id") or ""),
         "first_name": row.get("first_name") or row.get("given_name"),
         "last_name":  row.get("last_name")  or row.get("family_name"),
         "role":       row.get("role") or row.get("role_label") or row.get("primary_role_label"),
-        "location":   row.get("location") or row.get("location_label") or
-                      row.get("primary_location_label") or row.get("location_code"),
+        "location":   row.get("location") or row.get("location_label")
+                       or row.get("primary_location_label") or row.get("location_code"),
         "phone":      row.get("phone") or row.get("mobile"),
         "email":      row.get("email"),
         "is_active":  bool(row.get("is_active", True)),

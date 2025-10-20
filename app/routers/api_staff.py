@@ -115,8 +115,8 @@ def meta_roles():
     with engine.connect() as c:
         rows = c.execute(sa.text(f"""
             SELECT code, label FROM role
-             WHERE {ROLE_WHERE}
-             ORDER BY label
+            WHERE {ROLE_WHERE}
+            ORDER BY label
         """)).mappings().all()
     return [{"code": r["code"], "label": r["label"]} for r in rows]
 
@@ -125,8 +125,8 @@ def meta_locations():
     with engine.connect() as c:
         rows = c.execute(sa.text(f"""
             SELECT code, name AS label FROM location
-             WHERE {LOC_WHERE}
-             ORDER BY name
+            WHERE {LOC_WHERE}
+            ORDER BY name
         """)).mappings().all()
     return [{"code": r["code"], "label": r["label"]} for r in rows]
 
