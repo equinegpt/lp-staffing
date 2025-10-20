@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import date as _date, timedelta
 from uuid import UUID
+import secrets  # at top with other imports
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 import sqlalchemy as sa
 from fastapi import (
@@ -45,6 +46,12 @@ print("DB driver ->", u.drivername)  # should print: postgresql+psycopg
 DATABASE_URL = str(u)
 
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
+
+# --- Admin auth / session secrets ---
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
+ADMIN_WEB_PASSWORD = os.getenv("ADMIN_WEB_PASSWORD", "")
+# Use the env var in prod; fall back to a stable default for dev
+ADMIN_WEB_SECRET = os.getenv("ADMIN_WEB_SECRET") or "dev-secret"
 
 # ----------------------- APP & MIDDLEWARE -----------------------
 app = FastAPI(title="Staff Registry")
