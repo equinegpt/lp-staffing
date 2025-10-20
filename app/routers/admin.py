@@ -1,38 +1,83 @@
+# app/routers/admin.py
 from __future__ import annotations
 import io, csv
 from datetime import date as _date, timedelta
-from typing import Optional, List, Dict
-from uuid import UUID as _UUID
+from typing import Optional, Any, Mapping
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Request, Form, Depends
-from fastapi import status as http_status
+from sqlalchemy.orm import Session
+from fastapi import APIRouter, Request, Form, Depends, HTTPException, status as http_status
+from fastapi.responses import JSONResponse
 from starlette.responses import RedirectResponse, HTMLResponse, StreamingResponse
 
-from app.core.db import engine
+from app.core.db import get_session, engine
 from app.core.constants import ROLE_WHERE, LOC_WHERE
-from app.core.config import ADMIN_API_KEY, ADMIN_WEB_PASSWORD
+from app.core.config import ADMIN_WEB_PASSWORD
 from app.core.templates import templates
 from app.services.staff import fetch_assignments_for, fetch_staff_for_list
+from app.staff import Staff
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# ------------------------------- helpers ---------------------------------- #
 
 def _admin_only(request: Request) -> bool:
     return bool(request.session.get("admin"))
 
-def staff_to_dict(r: Dict) -> Dict:
+def _as_bool(v: Any, default: bool = True) -> bool:
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int,)):
+        return bool(v)
+    if isinstance(v, str):
+        return v.strip().lower() in {"1", "true", "t", "yes", "y"}
+    return default
+
+def staff_to_api(row: Any) -> dict:
+    """
+    Robust converter that accepts:
+      - ORM object (Staff)
+      - SQLAlchemy mapping/dict from fetch_staff_for_list or SELECTs
+    and returns snake_case JSON compatible with the iOS client
+    (which uses JSONDecoder.convertFromSnakeCase).
+    """
+    get = None
+    if isinstance(row, Mapping):
+        get = row.get
+        id_ = str(get("id") or "")
+        first = get("first_name") or get("given_name")
+        last  = get("last_name") or get("family_name")
+        phone = get("phone") or get("mobile")
+        email = get("email")
+        is_active = get("is_active")
+        notes = get("notes")
+        role = get("role") or get("role_label") or get("primary_role_label")
+    else:
+        # ORM object fallback
+        id_ = str(getattr(row, "id", ""))
+        first = getattr(row, "first_name", None) or getattr(row, "given_name", None)
+        last  = getattr(row, "last_name", None)  or getattr(row, "family_name", None)
+        phone = getattr(row, "phone", None) or getattr(row, "mobile", None)
+        email = getattr(row, "email", None)
+        is_active = getattr(row, "is_active", None)
+        notes = getattr(row, "notes", None)
+        role = getattr(row, "role", None)
+
     return {
-        "id": str(r.get("id", "")),
-        "first_name": r.get("given_name"),
-        "last_name": r.get("family_name"),
-        "role": r.get("role_label") or r.get("role_code"),
-        "phone": r.get("mobile"),
-        "email": r.get("email"),
-        "is_active": bool(r.get("is_active", True)),
-        "notes": None,
+        "id": id_,
+        "first_name": first,
+        "last_name": last,
+        "role": role,
+        "phone": phone,
+        "email": email,
+        "is_active": _as_bool(is_active, True),
+        "notes": notes,
     }
 
-# ---------- Login / Logout ----------
+# -------------------------------- login ----------------------------------- #
+
 @router.get("/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
@@ -61,19 +106,25 @@ def admin_logout(request: Request):
 def admin_home_redirect():
     return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
-# ---------- Staff List (HTML + JSON) ----------
+# --------------------------- staff list (HTML + JSON) --------------------- #
+
 @router.get("/staff", response_class=HTMLResponse)
-def admin_staff_list(request: Request,
-                     d: Optional[str] = None, q: Optional[str] = None,
-                     role: Optional[str] = None, location: Optional[str] = None,
-                     status: Optional[str] = None):
-    # JSON branch for apps
+@router.get("/staff/", response_class=HTMLResponse)
+def admin_staff_list(
+    request: Request,
+    d: Optional[str] = None,
+    q: Optional[str] = None,
+    role: Optional[str] = None,
+    location: Optional[str] = None,
+    status: Optional[str] = None,
+):
+    # JSON branch for apps (no login)
     if "application/json" in (request.headers.get("accept") or ""):
         day = _date.today()
         rows = fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
-        return [staff_to_dict(r) for r in rows]
+        return [staff_to_api(r) for r in rows]
 
-    # HTML branch
+    # HTML branch (login-protected)
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -99,12 +150,15 @@ def admin_staff_list(request: Request,
         "q": q or ""
     })
 
-# ---------- CSV (must be BEFORE /staff/{id}) ----------
+# ------------------------------- CSV export -------------------------------- #
+
 @router.get("/staff/export.csv")
-def admin_staff_export_csv(request: Request,
-                           d: Optional[str] = None, q: Optional[str] = None,
-                           role: Optional[str] = None, location: Optional[str] = None,
-                           status: Optional[str] = None):
+def admin_staff_export_csv(
+    request: Request,
+    d: Optional[str] = None, q: Optional[str] = None,
+    role: Optional[str] = None, location: Optional[str] = None,
+    status: Optional[str] = None
+):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     try:
@@ -124,9 +178,11 @@ def admin_staff_export_csv(request: Request,
         ])
     out.seek(0)
     return StreamingResponse(out, media_type="text/csv",
-                             headers={"Content-Disposition": f'attachment; filename="staff_{(_date.today().isoformat())}.csv"'} )
+        headers={"Content-Disposition": f'attachment; filename="staff_{(_date.today().isoformat())}.csv"'}
+    )
 
-# ---------- HTML Create/New ----------
+# ------------------------------ HTML create -------------------------------- #
+
 @router.get("/staff/new", response_class=HTMLResponse)
 def admin_staff_new(request: Request):
     if not _admin_only(request):
@@ -179,9 +235,12 @@ def admin_staff_create(
 
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
-# ---------- JSON Create/Update/Delete (Accept: application/json) ----------
+# ------------------------- JSON CRUD for apps (no login) ------------------- #
+
 @router.post("/staff")
+@router.post("/staff/")
 async def admin_staff_create_json(request: Request):
+    # Only serve JSON when explicitly requested
     if "application/json" not in (request.headers.get("accept") or ""):
         return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -190,29 +249,26 @@ async def admin_staff_create_json(request: Request):
     fn = data.get("last_name")  or data.get("lastName")  or data.get("family_name")
     phone = data.get("phone") or data.get("mobile")
     email = data.get("email")
-    is_active = data.get("is_active", data.get("isActive", True))
+    is_active = _as_bool(data.get("is_active", data.get("isActive", True)), True)
     if not (gn and fn and phone):
         return HTMLResponse("first_name, last_name, phone required", status_code=400)
 
-    display_name = f"{gn} {fn}".strip()
     today = _date.today()
+    display_name = f"{gn} {fn}".strip()
 
     with engine.begin() as c:
         dup = c.execute(sa.text("SELECT id FROM staff WHERE mobile=:m"), {"m": phone.strip()}).first()
         if dup:
             return HTMLResponse("Mobile already exists for another staff", status_code=409)
 
-        staff_id = c.execute(sa.text("""
+        row = c.execute(sa.text("""
             INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date, end_date)
             VALUES (:gn,:fn,:dn,:m,:e,:sd,:ed)
-            RETURNING id
+            RETURNING id, given_name, family_name, mobile, email, (end_date IS NULL) AS is_active
         """), {"gn": gn, "fn": fn, "dn": display_name, "m": phone.strip(),
-               "e": email, "sd": today, "ed": (None if is_active else today)}).scalar_one()
+               "e": email, "sd": today, "ed": (None if is_active else today)}).mappings().first()
 
-    row = {"id": str(staff_id), "given_name": gn, "family_name": fn,
-           "role_label": None, "role_code": None, "mobile": phone, "email": email,
-           "is_active": bool(is_active)}
-    return staff_to_dict(row)
+    return JSONResponse(staff_to_api(row), status_code=http_status.HTTP_201_CREATED)
 
 @router.put("/staff/{staff_id}")
 async def admin_staff_update_json(staff_id: str, request: Request):
@@ -236,8 +292,10 @@ async def admin_staff_update_json(staff_id: str, request: Request):
         if phone is not None: params["m"] = phone; sets += ["mobile=:m"]
         if email is not None: params["e"] = email; sets += ["email=:e"]
         if is_active is not None:
-            if bool(is_active): sets += ["end_date=NULL"]
-            else: params["ed"] = _date.today(); sets += ["end_date=:ed"]
+            if _as_bool(is_active, True):
+                sets += ["end_date=NULL"]
+            else:
+                params["ed"] = _date.today(); sets += ["end_date=:ed"]
 
         if sets:
             c.execute(sa.text(f"UPDATE staff SET {', '.join(sets)} WHERE id=:sid"), params)
@@ -250,8 +308,7 @@ async def admin_staff_update_json(staff_id: str, request: Request):
     if not row:
         return HTMLResponse("Staff not found", status_code=404)
 
-    d = dict(row); d["role_label"] = None; d["role_code"] = None
-    return staff_to_dict(d)
+    return staff_to_api(row)
 
 @router.delete("/staff/{staff_id}")
 def admin_staff_delete_json(staff_id: str):
@@ -261,7 +318,8 @@ def admin_staff_delete_json(staff_id: str):
         return HTMLResponse("Staff not found", status_code=404)
     return {"ok": True}
 
-# ---------- HTML partials / detail / edit ----------
+# ---------------------------- HTML detail/edit ----------------------------- #
+
 @router.get("/staff/table", response_class=HTMLResponse)
 def admin_staff_table(request: Request, d: Optional[str] = None, q: Optional[str] = None,
                       role: Optional[str] = None, location: Optional[str] = None,
@@ -307,7 +365,8 @@ def admin_staff_edit(request: Request, staff_id: str):
             return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse("admin_staff_edit.html", {"request": request, "s": s})
 
-# ---------- Assignments ----------
+# ------------------------------- assignments ------------------------------- #
+
 @router.get("/staff/{staff_id}/assignments/table", response_class=HTMLResponse)
 def admin_assignments_table(request: Request, staff_id: str):
     if not _admin_only(request):
@@ -316,7 +375,8 @@ def admin_assignments_table(request: Request, staff_id: str):
         assignments = fetch_assignments_for(c, staff_id)
         roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
         locations = c.execute(sa.text(f"SELECT code,name FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
-    return templates.TemplateResponse("partials/assignments_table.html", {"request": request, "s_id": staff_id, "assignments": assignments, "roles": roles, "locations": locations})
+    return templates.TemplateResponse("partials/assignments_table.html",
+        {"request": request, "s_id": staff_id, "assignments": assignments, "roles": roles, "locations": locations})
 
 @router.post("/staff/{staff_id}/assign")
 def admin_add_assignment(

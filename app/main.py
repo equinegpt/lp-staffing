@@ -10,6 +10,9 @@ from app.core.db import bootstrap_schema
 from app.routers import public as public_router
 from app.routers import admin as admin_router
 from fastapi.staticfiles import StaticFiles
+from app.routers.admin import router as admin_router
+from app.routers.public import router as public_router  # if you have it
+from app.routers.api_staff import router as api_staff_router
 
 print("DB driver -> postgresql+psycopg")
 print("Session secret source:", "env")
@@ -18,6 +21,8 @@ print("Session secret source:", "env")
 async def lifespan(app: FastAPI):
     bootstrap_schema()
     yield
+
+app = FastAPI(title="LP Staffing API")
 
 app = FastAPI(title="Staff Registry", lifespan=lifespan)
 
@@ -38,8 +43,17 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # Routers
 app.include_router(public_router.router)
 app.include_router(admin_router.router)
+app.include_router(api_staff_router)   # ← JSON API (no login)
+app.include_router(admin_router)       # ← HTML/admin
+app.include_router(public_router)      # ← any public HTML, optional
 
 # Root redirect
 @app.get("/")
 def root():
     return RedirectResponse("/admin/login")
+
+for r in app.router.routes:
+    try:
+        print("ROUTE:", r.methods, getattr(r, "path", None))
+    except Exception:
+        pass
