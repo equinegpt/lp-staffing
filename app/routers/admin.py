@@ -1,21 +1,18 @@
-# app/routers/admin.py
 from __future__ import annotations
 import io, csv
 from datetime import date as _date, timedelta
 from typing import Optional, Any, Mapping
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session
-from fastapi import APIRouter, Request, Form, Depends, HTTPException, status as http_status
+from fastapi import APIRouter, Request, Form, HTTPException, status as http_status
 from fastapi.responses import JSONResponse
 from starlette.responses import RedirectResponse, HTMLResponse, StreamingResponse
 
-from app.core.db import get_session, engine
+from app.core.db import engine
 from app.core.constants import ROLE_WHERE, LOC_WHERE
 from app.core.config import ADMIN_WEB_PASSWORD
 from app.core.templates import templates
 from app.services.staff import fetch_assignments_for, fetch_staff_for_list
-from app.staff import Staff
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -25,55 +22,23 @@ def _admin_only(request: Request) -> bool:
     return bool(request.session.get("admin"))
 
 def _as_bool(v: Any, default: bool = True) -> bool:
-    if v is None:
-        return default
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, (int,)):
-        return bool(v)
-    if isinstance(v, str):
-        return v.strip().lower() in {"1", "true", "t", "yes", "y"}
+    if v is None: return default
+    if isinstance(v, bool): return v
+    if isinstance(v, int): return bool(v)
+    if isinstance(v, str): return v.strip().lower() in {"1","true","t","yes","y"}
     return default
 
-def staff_to_api(row: Any) -> dict:
-    """
-    Robust converter that accepts:
-      - ORM object (Staff)
-      - SQLAlchemy mapping/dict from fetch_staff_for_list or SELECTs
-    and returns snake_case JSON compatible with the iOS client
-    (which uses JSONDecoder.convertFromSnakeCase).
-    """
-    get = None
-    if isinstance(row, Mapping):
-        get = row.get
-        id_ = str(get("id") or "")
-        first = get("first_name") or get("given_name")
-        last  = get("last_name") or get("family_name")
-        phone = get("phone") or get("mobile")
-        email = get("email")
-        is_active = get("is_active")
-        notes = get("notes")
-        role = get("role") or get("role_label") or get("primary_role_label")
-    else:
-        # ORM object fallback
-        id_ = str(getattr(row, "id", ""))
-        first = getattr(row, "first_name", None) or getattr(row, "given_name", None)
-        last  = getattr(row, "last_name", None)  or getattr(row, "family_name", None)
-        phone = getattr(row, "phone", None) or getattr(row, "mobile", None)
-        email = getattr(row, "email", None)
-        is_active = getattr(row, "is_active", None)
-        notes = getattr(row, "notes", None)
-        role = getattr(row, "role", None)
-
+def staff_to_api(row: Mapping[str, Any]) -> dict:
+    """Map DB/aggregated row -> API shape expected by iOS."""
     return {
-        "id": id_,
-        "first_name": first,
-        "last_name": last,
-        "role": role,
-        "phone": phone,
-        "email": email,
-        "is_active": _as_bool(is_active, True),
-        "notes": notes,
+        "id": str(row.get("id") or ""),
+        "first_name": row.get("first_name") or row.get("given_name"),
+        "last_name":  row.get("last_name")  or row.get("family_name"),
+        "role":       row.get("role") or row.get("role_label") or row.get("primary_role_label"),
+        "phone":      row.get("phone") or row.get("mobile"),
+        "email":      row.get("email"),
+        "is_active":  _as_bool(row.get("is_active", True), True),
+        "notes":      row.get("notes"),
     }
 
 # -------------------------------- login ----------------------------------- #
@@ -118,13 +83,13 @@ def admin_staff_list(
     location: Optional[str] = None,
     status: Optional[str] = None,
 ):
-    # JSON branch for apps (no login)
+    # JSON branch: no login, used by iOS client
     if "application/json" in (request.headers.get("accept") or ""):
         day = _date.today()
         rows = fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
         return [staff_to_api(r) for r in rows]
 
-    # HTML branch (login-protected)
+    # HTML branch (admin)
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -434,31 +399,6 @@ def admin_add_assignment(
                 INSERT INTO staff_role_assignment (staff_id, role_id, location_id, effective_start, effective_end)
                 VALUES (:sid, :rid, :lid, :st, :en)
             """), {"sid": staff_id, "rid": role.id, "lid": loc_id, "st": start, "en": end})
-
-    if request.headers.get("hx-request"):
-        with engine.connect() as c2:
-            assignments = fetch_assignments_for(c2, staff_id)
-            roles = c2.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
-            locations = c2.execute(sa.text(f"SELECT code,name FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
-        return templates.TemplateResponse("partials/assignments_table.html",
-            {"request": request, "s_id": staff_id, "assignments": assignments, "roles": roles, "locations": locations})
-
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
-
-@router.post("/staff/{staff_id}/assign/{assignment_id}/end")
-def admin_end_assignment(
-    request: Request, staff_id: str, assignment_id: str,
-    end_date: Optional[str] = Form(None)
-):
-    if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
-    d = _date.fromisoformat(end_date) if end_date else _date.today()
-    with engine.begin() as c:
-        row = c.execute(sa.text("SELECT effective_start FROM staff_role_assignment WHERE id=:aid AND staff_id=:sid"),
-                        {"aid": assignment_id, "sid": staff_id}).first()
-        if row and d >= row.effective_start:
-            c.execute(sa.text("UPDATE staff_role_assignment SET effective_end=:d WHERE id=:aid"),
-                      {"d": d, "aid": assignment_id})
 
     if request.headers.get("hx-request"):
         with engine.connect() as c2:
