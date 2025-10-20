@@ -1,3 +1,4 @@
+# render.yaml  (put this in repo root)
 services:
   - type: web
     name: lp-staffing-api
@@ -13,7 +14,6 @@ services:
           name: lp-staffing-db
           property: connectionString
       - key: ADMIN_WEB_PASSWORD
-        # set this in the dashboard if you don't want to commit it here
         sync: false
       - key: ADMIN_WEB_SECRET
         generateValue: true
