@@ -337,3 +337,26 @@ input[type="date"] { padding:8px 10px; }
 .alert { padding: 10px 12px; border-radius: 10px; margin: 8px 0 16px; }
 .alert-bad { color: #7a1212; background: #fdecec; border: 1px solid #f8d0d0; }
 .madeby { text-align: center; color:#667085; margin-top: 18px; }
+/* Login polish */
+.container.narrow { max-width: 520px; margin: 56px auto; }
+.card.form { padding: 28px 24px; }
+.header h1 { margin: 0 0 4px; font-size: 28px; }
+.header .sub { margin: 0 0 16px; color: #667085; }
+
+.input-wrap { position: relative; }
+.input-wrap .input { width: 100%; padding-right: 56px; }
+
+.pw-toggle {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 32px; border-radius: 8px; background: transparent;
+  border: 0; cursor: pointer; color: #6b7280;
+}
+.pw-toggle:hover { background: #f3f4f6; }
+.icon { width: 18px; height: 18px; }
+.hidden { display: none; }
+
+.actions { margin-top: 8px; display: flex; gap: 8px; }
+.alert { padding: 10px 12px; border-radius: 10px; margin: 8px 0 16px; }
+.alert-bad { color: #7a1212; background: #fdecec; border: 1px solid #f8d0d0; }
+.madeby { text-align: center; color:#667085; margin-top: 18px; }

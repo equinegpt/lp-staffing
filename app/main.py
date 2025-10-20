@@ -663,25 +663,29 @@ def admin_login_page(request: Request):
 
 
 @admin.post("/login")
-def admin_login(request: Request, password: str = Form(default="")):
+def admin_login(request: Request, password: str = Form(...)):
     configured = (ADMIN_WEB_PASSWORD or "").strip()
 
-    # If you haven't set a password but you typed something, let it in (dev convenience)
+    # If no password configured, allow any non-empty password
     if not configured:
         if password.strip():
             request.session["admin"] = True
-            return RedirectResponse(url="/admin/staff", status_code=302)
-        return HTMLResponse("<h3>Login blocked: set ADMIN_WEB_PASSWORD in .env</h3>", status_code=500)
+            return RedirectResponse("/admin/staff", status_code=http_status.SEE_OTHER)
+        # show error on the *same* page
+        return templates.TemplateResponse(
+            "login.html", {"request": request, "error": "Please enter a password."},
+            status_code=400
+        )
 
-    # Constant-time comparison
-    if _secrets.compare_digest(password.strip(), configured):
+    # Normal flow
+    if password.strip() == configured:
         request.session["admin"] = True
-        return RedirectResponse(url="/admin/staff", status_code=302)
+        return RedirectResponse("/admin/staff", status_code=http_status.SEE_OTHER)
 
-    return HTMLResponse(
-        "<!doctype html><meta charset='utf-8'><h2>Wrong password</h2>"
-        "<p><a href='/admin/login'>Back</a></p>",
-        status_code=401,
+    # Wrong password — render login page with error
+    return templates.TemplateResponse(
+        "login.html", {"request": request, "error": "Wrong password"},
+        status_code=401
     )
 
 @admin.get("/logout")
