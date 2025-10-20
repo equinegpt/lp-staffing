@@ -35,9 +35,11 @@ def staff_to_api(row: Mapping[str, Any]) -> dict:
         "first_name": row.get("first_name") or row.get("given_name"),
         "last_name":  row.get("last_name")  or row.get("family_name"),
         "role":       row.get("role") or row.get("role_label") or row.get("primary_role_label"),
+        "location":   row.get("location") or row.get("location_label") or
+                      row.get("primary_location_label") or row.get("location_code"),
         "phone":      row.get("phone") or row.get("mobile"),
         "email":      row.get("email"),
-        "is_active":  _as_bool(row.get("is_active", True), True),
+        "is_active":  bool(row.get("is_active", True)),
         "notes":      row.get("notes"),
     }
 
