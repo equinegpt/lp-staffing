@@ -2,7 +2,6 @@
 import csv
 import io
 import os
-import secrets
 from contextlib import asynccontextmanager
 from datetime import date as _date, timedelta
 from pathlib import Path
@@ -27,7 +26,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr, field_validator
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from starlette.responses import RedirectResponse, HTMLResponse
+import secrets as _secrets
 
 # ----------------------- ENV -----------------------
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -663,17 +663,20 @@ def admin_login_page(request: Request):
 
 
 @admin.post("/login")
-def admin_login(request: Request, password: str = Form(...)):
+def admin_login(request: Request, password: str = Form(default="")):
     configured = (ADMIN_WEB_PASSWORD or "").strip()
+
+    # If you haven't set a password but you typed something, let it in (dev convenience)
     if not configured:
         if password.strip():
             request.session["admin"] = True
-            return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(url="/admin/staff", status_code=302)
         return HTMLResponse("<h3>Login blocked: set ADMIN_WEB_PASSWORD in .env</h3>", status_code=500)
 
-    if password.strip() == configured:
+    # Constant-time comparison
+    if _secrets.compare_digest(password.strip(), configured):
         request.session["admin"] = True
-        return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/admin/staff", status_code=302)
 
     return HTMLResponse(
         "<!doctype html><meta charset='utf-8'><h2>Wrong password</h2>"
@@ -681,12 +684,10 @@ def admin_login(request: Request, password: str = Form(...)):
         status_code=401,
     )
 
-
 @admin.get("/logout")
 def admin_logout(request: Request):
     request.session.clear()
-    return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
-
+    return RedirectResponse(url="/admin/login", status_code=302)
 
 @admin.get("", response_class=HTMLResponse)
 def admin_home_redirect():
