@@ -1,11 +1,10 @@
 # app/main.py
-import os
 from pathlib import Path
 from typing import Optional, List, Dict
-from datetime import date as _date, timedelta
-from uuid import UUID
-import secrets  # at top with other imports
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from datetime import date as _date
+import os
+import io, csv
+
 import sqlalchemy as sa
 from fastapi import (
     FastAPI, Query, Header, HTTPException, Depends,
@@ -18,40 +17,31 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, field_validator
 from dotenv import load_dotenv
-import io, csv
 
 # ----------------------- ENV & DB -----------------------
 ROOT_DIR = Path(__file__).resolve().parents[1]
-env_path = ROOT_DIR / ".env"
-load_dotenv(dotenv_path=env_path, override=True)
+load_dotenv(dotenv_path=ROOT_DIR / ".env", override=True)  # ok if missing in prod
 
-from sqlalchemy.engine.url import make_url
+def _env(name: str, default: str = "") -> str:
+    v = os.getenv(name)
+    return v if v is not None else default
 
-raw_url = (os.getenv("DATABASE_URL") or "").strip()
-if not raw_url:
-    raise RuntimeError("DATABASE_URL missing in env")
+DATABASE_URL = _env("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL env var is required")
 
-# Normalize e.g. postgres:// -> postgresql://
-if raw_url.startswith("postgres://"):
-    raw_url = "postgresql://" + raw_url[len("postgres://"):]
+# Normalize & force psycopg v3 driver for SQLAlchemy
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+if DATABASE_URL.startswith("postgresql://") and "+psycopg" not in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
-# Force the SQLAlchemy driver to psycopg (v3) no matter what
-u = make_url(raw_url)
-if u.drivername.startswith("postgres"):
-    u = u.set(drivername="postgresql+psycopg")
-
-# Optional tiny debug (prints only the driver name, not secrets)
-print("DB driver ->", u.drivername)  # should print: postgresql+psycopg
-
-DATABASE_URL = str(u)
+ADMIN_API_KEY      = _env("ADMIN_API_KEY")
+ADMIN_WEB_PASSWORD = _env("ADMIN_WEB_PASSWORD")
+# Use a stable secret in prod (from env); fall back to a dev-only constant locally
+ADMIN_WEB_SECRET   = _env("ADMIN_WEB_SECRET", "dev-secret")
 
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
-
-# --- Admin auth / session secrets ---
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
-ADMIN_WEB_PASSWORD = os.getenv("ADMIN_WEB_PASSWORD", "")
-# Use the env var in prod; fall back to a stable default for dev
-ADMIN_WEB_SECRET = os.getenv("ADMIN_WEB_SECRET") or "dev-secret"
 
 # ----------------------- APP & MIDDLEWARE -----------------------
 app = FastAPI(title="Staff Registry")
@@ -67,6 +57,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# sessions (needs ADMIN_WEB_SECRET defined above)
 app.add_middleware(SessionMiddleware, secret_key=ADMIN_WEB_SECRET, same_site="lax")
 
 # ----------------------- STATIC & TEMPLATES -----------------------
