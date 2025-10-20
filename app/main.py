@@ -20,9 +20,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
-# ---------------------------------------------------------------------
-# ENV
-# ---------------------------------------------------------------------
+# ----------------------- ENV -----------------------
 ROOT_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(dotenv_path=ROOT_DIR / ".env", override=False)  # OK if missing on Render
 
@@ -49,27 +47,21 @@ ADMIN_WEB_SECRET   = env("ADMIN_WEB_SECRET") or os.environ.setdefault(
 print("DB driver ->", "postgresql+psycopg" if "+psycopg" in DATABASE_URL else "postgresql")
 print("Session secret source:", "env" if os.getenv("ADMIN_WEB_SECRET") else "generated")
 
-# ---------------------------------------------------------------------
-# DB ENGINE
-# ---------------------------------------------------------------------
+# ----------------------- DB ENGINE -----------------------
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
 
-# ---------------------------------------------------------------------
-# Allowed / UI lists
-# ---------------------------------------------------------------------
+# ----------------------- CONSTANTS (allowed values for UI) -----------------------
 ALLOWED_ROLES = ("RIDER", "STRAPPER", "MEDIA", "TREADMILL", "WATERWALKERS", "FARRIER", "VET")
 ALLOWED_LOCS  = ("FARM", "FLEMINGTON", "PAKENHAM")
 
 ROLE_WHERE = "code IN ('RIDER','STRAPPER','MEDIA','TREADMILL','WATERWALKERS','FARRIER','VET')"
 LOC_WHERE  = "code IN ('FARM','FLEMINGTON','PAKENHAM')"
 
-# ---------------------------------------------------------------------
-# SCHEMA BOOTSTRAP
-# ---------------------------------------------------------------------
+# ----------------------- SCHEMA & SEED -----------------------
 def _bootstrap_schema():
     """Create tables and seed minimal data. Safe to run repeatedly."""
     with engine.begin() as c:
-        # Extension (ignore failures if permissions are limited)
+        # Extension
         try:
             c.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
         except Exception:
@@ -129,7 +121,7 @@ def _bootstrap_schema():
         c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_role       ON staff_role_assignment (role_id)")
         c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_location   ON staff_role_assignment (location_id)")
 
-        # ----- Roles (seed + keep labels fresh) -----
+        # Roles (seed/refresh)
         c.exec_driver_sql("""
         INSERT INTO role (code, label) VALUES
           ('RIDER','Rider'),
@@ -142,7 +134,7 @@ def _bootstrap_schema():
         ON CONFLICT (code) DO UPDATE SET label = EXCLUDED.label
         """)
 
-        # ----- Locations (seed + keep names fresh) -----
+        # Locations (seed/refresh)
         c.exec_driver_sql("""
         INSERT INTO location (code, name, timezone) VALUES
           ('FARM','Farm','Australia/Melbourne'),
@@ -151,7 +143,7 @@ def _bootstrap_schema():
         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, timezone = EXCLUDED.timezone
         """)
 
-        # OPTIONAL: prune deprecated codes if unused in history
+        # Prune deprecated codes if unused
         c.exec_driver_sql(f"""
         DELETE FROM role r
          WHERE r.code NOT IN ({', '.join([f"'{x}'" for x in ALLOWED_ROLES])})
@@ -163,15 +155,12 @@ def _bootstrap_schema():
            AND NOT EXISTS (SELECT 1 FROM staff_role_assignment a WHERE a.location_id = l.id)
         """)
 
-# Lifespan so bootstrapping happens before the app serves
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _bootstrap_schema()
     yield
 
-# ---------------------------------------------------------------------
-# APP & MIDDLEWARE
-# ---------------------------------------------------------------------
+# ----------------------- APP & MIDDLEWARE -----------------------
 app = FastAPI(title="Staff Registry", lifespan=lifespan)
 
 app.add_middleware(
@@ -187,9 +176,7 @@ app.add_middleware(
 
 app.add_middleware(SessionMiddleware, secret_key=ADMIN_WEB_SECRET, same_site="lax")
 
-# ---------------------------------------------------------------------
-# STATIC & TEMPLATES
-# ---------------------------------------------------------------------
+# ----------------------- STATIC & TEMPLATES -----------------------
 STATIC_DIR = ROOT_DIR / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -198,9 +185,7 @@ TEMPLATES_DIR = ROOT_DIR / "templates"
 TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# ---------------------------------------------------------------------
-# HELPERS & MODELS
-# ---------------------------------------------------------------------
+# ----------------------- HELPERS -----------------------
 def require_admin(x_api_key: str = Header(default="")):
     if not ADMIN_API_KEY or x_api_key != ADMIN_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -208,13 +193,13 @@ def require_admin(x_api_key: str = Header(default="")):
 
 def _validate_uuid(s: str) -> str:
     try:
-        _UUID(s)  # validate, but return original string
+        _UUID(s)
         return s
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid id")
 
 def staff_to_dict(r: Dict) -> Dict:
-    """Serialize a staff row/mapping to app-friendly JSON."""
+    """Shape used by the iOS app."""
     return {
         "id": str(r.get("id", "")),
         "first_name": r.get("given_name"),
@@ -226,18 +211,13 @@ def staff_to_dict(r: Dict) -> Dict:
         "notes": None,
     }
 
-# ---------------------------------------------------------------------
-# JSON API (system)
-# ---------------------------------------------------------------------
+# ----------------------- PUBLIC JSON -----------------------
 @app.get("/healthz")
 def healthz():
     with engine.connect() as c:
         c.exec_driver_sql("SELECT 1")
     return {"ok": True}
 
-# ---------------------------------------------------------------------
-# PUBLIC JSON (lists)
-# ---------------------------------------------------------------------
 @app.get("/roles")
 def get_roles() -> List[Dict]:
     sql = sa.text(f"SELECT code, label FROM role WHERE {ROLE_WHERE} ORDER BY label")
@@ -250,14 +230,11 @@ def get_locations() -> List[Dict]:
     with engine.connect() as c:
         return [dict(r) for r in c.execute(sql).mappings().all()]
 
-# ---------------------------------------------------------------------
-# PUBLIC JSON (legacy staff listing)
-# ---------------------------------------------------------------------
 @app.get("/staff")
 def get_staff(
     d: _date = Query(..., description="Date to evaluate activity (YYYY-MM-DD)"),
-    role: Optional[str] = Query(None, description="Role code (e.g. RIDER)"),
-    location: Optional[str] = Query(None, description="Location code (e.g. FLEMINGTON)"),
+    role: Optional[str] = Query(None, description="Role code e.g., RIDER"),
+    location: Optional[str] = Query(None, description="Location code e.g., FLEMINGTON"),
 ) -> List[Dict]:
     sql = sa.text("""
     SELECT
@@ -283,9 +260,7 @@ def get_staff(
     with engine.connect() as c:
         return [dict(r) for r in c.execute(sql, params).mappings().all()]
 
-# ---------------------------------------------------------------------
-# ADMIN WEB + JSON (under /admin)
-# ---------------------------------------------------------------------
+# ----------------------- ADMIN WEB + JSON -----------------------
 admin = APIRouter(prefix="/admin", tags=["admin"])
 
 def _admin_only(request: Request) -> bool:
@@ -307,7 +282,7 @@ def _fetch_staff_for_list(*, day: _date, role_code: Optional[str], loc_code: Opt
                           status: Optional[str], q: Optional[str]) -> List[Dict]:
     status_norm = (status or "").strip().lower()
     if status_norm not in ("active", "inactive"):
-        status_norm = ""  # Any status
+        status_norm = ""
     role_code_s = (role_code or "").strip()
     loc_code_s  = (loc_code  or "").strip()
     q_raw       = (q or "").strip()
@@ -393,7 +368,6 @@ def admin_staff_list(request: Request,
                      d: Optional[str] = None, q: Optional[str] = None,
                      role: Optional[str] = None, location: Optional[str] = None,
                      status: Optional[str] = None):
-
     # JSON branch for apps
     if "application/json" in (request.headers.get("accept") or ""):
         day = _date.today()
@@ -427,7 +401,101 @@ def admin_staff_list(request: Request,
         "q": q or ""
     })
 
-# ---- Staff JSON create/update/delete (for apps)
+# -------- CSV export (KEEP BEFORE any /staff/{staff_id} routes) --------
+@admin.get("/staff/export.csv")
+def admin_staff_export_csv(request: Request,
+                           d: Optional[str] = None, q: Optional[str] = None,
+                           role: Optional[str] = None, location: Optional[str] = None,
+                           status: Optional[str] = None):
+    if not _admin_only(request):
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
+
+    try:
+        day = _date.fromisoformat(d) if d else _date.today()
+    except Exception:
+        day = _date.today()
+
+    rows = _fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    headers = [
+        "id","given_name","family_name","display_name","mobile","email",
+        "start_date","end_date","is_active",
+        "role_code","role_label","location_code"
+    ]
+    writer.writerow(headers)
+    for r in rows:
+        writer.writerow([
+            r.get("id"), r.get("given_name"), r.get("family_name"), r.get("display_name"),
+            r.get("mobile"), r.get("email"),
+            r.get("start_date"), r.get("end_date"),
+            "TRUE" if r.get("is_active") else "FALSE",
+            r.get("role_code"), r.get("role_label"), r.get("location_code"),
+        ])
+    output.seek(0)
+
+    filename = f"staff_{day.isoformat()}.csv"
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+# ---- HTML create/new
+@admin.get("/staff/new", response_class=HTMLResponse)
+def admin_staff_new(request: Request):
+    if not _admin_only(request):
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
+    with engine.connect() as c:
+        roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
+        locs  = c.execute(sa.text(f"SELECT code,name  FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
+    return templates.TemplateResponse("admin_staff_new.html", {
+        "request": request, "roles": roles, "locations": locs,
+        "today": _date.today().isoformat(), "now": _date.today().isoformat()
+    })
+
+@admin.post("/staff/create")
+def admin_staff_create(
+    request: Request,
+    given_name: str = Form(...),
+    family_name: str = Form(...),
+    mobile: str = Form(...),
+    start_date: str = Form(...),
+    email: Optional[str] = Form(None),
+    primary_role_code: Optional[str] = Form(None),
+    location_code: Optional[str] = Form(None),
+):
+    if not _admin_only(request):
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
+    try:
+        sd = _date.fromisoformat(start_date)
+    except Exception:
+        sd = _date.today()
+
+    display_name = f"{given_name} {family_name}".strip()
+    with engine.begin() as c:
+        existing = c.execute(sa.text("SELECT id FROM staff WHERE mobile = :m"), {"m": mobile.strip()}).first()
+        if existing:
+            return RedirectResponse(f"/admin/staff/{existing.id}", status_code=http_status.HTTP_303_SEE_OTHER)
+
+        staff_id = c.execute(sa.text("""
+            INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date)
+            VALUES (:gn,:fn,:dn,:m,:e,:sd) RETURNING id
+        """), {"gn": given_name, "fn": family_name, "dn": display_name, "m": mobile.strip(), "e": email, "sd": sd}).scalar_one()
+
+        if primary_role_code and location_code:
+            role = c.execute(sa.text("SELECT id FROM role WHERE code=:c"), {"c": primary_role_code}).first()
+            loc  = c.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": location_code}).first()
+            if role and loc:
+                c.execute(sa.text("""
+                    INSERT INTO staff_role_assignment (staff_id, role_id, location_id, effective_start)
+                    VALUES (:sid,:rid,:lid,:sd)
+                """), {"sid": staff_id, "rid": role.id, "lid": loc.id, "sd": sd})
+
+    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
+
+# ---- JSON create/update/delete (for apps; Accept: application/json)
 @admin.post("/staff")
 async def admin_staff_create_json(request: Request):
     if "application/json" not in (request.headers.get("accept") or ""):
@@ -526,7 +594,7 @@ def admin_staff_delete_json(staff_id: str):
         raise HTTPException(status_code=404, detail="Staff not found")
     return {"ok": True}
 
-# ---- HTML partials / flows
+# ---- HTML partials / detail / edit
 @admin.get("/staff/table", response_class=HTMLResponse)
 def admin_staff_table(request: Request, d: Optional[str] = None, q: Optional[str] = None,
                       role: Optional[str] = None, location: Optional[str] = None,
@@ -542,58 +610,6 @@ def admin_staff_table(request: Request, d: Optional[str] = None, q: Optional[str
     return templates.TemplateResponse("partials/staff_table_rows.html", {
         "request": request, "staff": staff_rows
     })
-
-@admin.get("/staff/new", response_class=HTMLResponse)
-def admin_staff_new(request: Request):
-    if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
-    with engine.connect() as c:
-        roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
-        locs  = c.execute(sa.text(f"SELECT code,name  FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
-    return templates.TemplateResponse("admin_staff_new.html", {
-        "request": request, "roles": roles, "locations": locs,
-        "today": _date.today().isoformat(), "now": _date.today().isoformat()
-    })
-
-@admin.post("/staff/create")
-def admin_staff_create(
-    request: Request,
-    given_name: str = Form(...),
-    family_name: str = Form(...),
-    mobile: str = Form(...),
-    start_date: str = Form(...),
-    email: Optional[str] = Form(None),
-    primary_role_code: Optional[str] = Form(None),
-    location_code: Optional[str] = Form(None),
-):
-    if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
-    try:
-        sd = _date.fromisoformat(start_date)
-    except Exception:
-        sd = _date.today()
-
-    display_name = f"{given_name} {family_name}".strip()
-    with engine.begin() as c:
-        existing = c.execute(sa.text("SELECT id FROM staff WHERE mobile = :m"), {"m": mobile.strip()}).first()
-        if existing:
-            return RedirectResponse(f"/admin/staff/{existing.id}", status_code=http_status.HTTP_303_SEE_OTHER)
-
-        staff_id = c.execute(sa.text("""
-            INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date)
-            VALUES (:gn,:fn,:dn,:m,:e,:sd) RETURNING id
-        """), {"gn": given_name, "fn": family_name, "dn": display_name, "m": mobile.strip(), "e": email, "sd": sd}).scalar_one()
-
-        if primary_role_code and location_code:
-            role = c.execute(sa.text("SELECT id FROM role WHERE code=:c"), {"c": primary_role_code}).first()
-            loc  = c.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": location_code}).first()
-            if role and loc:
-                c.execute(sa.text("""
-                    INSERT INTO staff_role_assignment (staff_id, role_id, location_id, effective_start)
-                    VALUES (:sid,:rid,:lid,:sd)
-                """), {"sid": staff_id, "rid": role.id, "lid": loc.id, "sd": sd})
-
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @admin.get("/staff/{staff_id}", response_class=HTMLResponse)
 def admin_staff_detail(request: Request, staff_id: str):
@@ -615,6 +631,19 @@ def admin_staff_detail(request: Request, staff_id: str):
     return templates.TemplateResponse("admin_staff_detail.html", {
         "request": request, "s": s, "assignments": assignments, "roles": roles, "locations": locs
     })
+
+@admin.get("/staff/{staff_id}/edit", response_class=HTMLResponse)
+def admin_staff_edit(request: Request, staff_id: str):
+    if not _admin_only(request):
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
+    with engine.connect() as c:
+        s = c.execute(sa.text("""
+          SELECT id, given_name, family_name, display_name, mobile, email, start_date, end_date
+          FROM staff WHERE id=:sid
+        """), {"sid": staff_id}).mappings().first()
+        if not s:
+            return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse("admin_staff_edit.html", {"request": request, "s": s})
 
 @admin.get("/staff/{staff_id}/assignments/table", response_class=HTMLResponse)
 def admin_assignments_table(request: Request, staff_id: str):
