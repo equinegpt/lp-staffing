@@ -6,15 +6,20 @@ from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
-# Pull from env if set (Render), otherwise fall back to your config default.
-try:
-    from app.core.config import DATABASE_URL as CONFIG_DATABASE_URL  # optional fallback
-except Exception:
-    CONFIG_DATABASE_URL = "sqlite:///./dev.db"
+def _normalize_db_url(url: str) -> str:
+    # Render sometimes provides postgres://
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    # Force psycopg v3 driver instead of psycopg2
+    if url.startswith("postgresql+psycopg2://"):
+        url = "postgresql+psycopg://" + url[len("postgresql+psycopg2://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
 
-DATABASE_URL = os.getenv("DATABASE_URL", CONFIG_DATABASE_URL)
+_RAW_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
+DATABASE_URL = _normalize_db_url(_RAW_URL)
 
-# Sync engine (your code uses sa.text(...) and engine.connect())
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
@@ -30,14 +35,13 @@ SessionLocal = sessionmaker(
 )
 
 def get_session() -> Generator[Session, None, None]:
-    """FastAPI dependency that yields a DB session."""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
-# --- Optional schema bootstrap + seed (kept from your version) ---
+# ---- keep your bootstrap_schema() exactly as is below ----
 from app.core.constants import ALLOWED_ROLES, ALLOWED_LOCS
 
 def bootstrap_schema() -> None:
