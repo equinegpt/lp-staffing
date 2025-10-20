@@ -1,16 +1,16 @@
 # app/main.py
 from pathlib import Path
 from typing import Optional, List, Dict
-from datetime import date as _date
-import os
-import io, csv
+from datetime import date as _date, timedelta
+import os, secrets, io, csv
 from uuid import UUID as _UUID
 
 import sqlalchemy as sa
 from fastapi import (
     FastAPI, Query, Header, HTTPException, Depends,
-    Request, Form, status, APIRouter
+    Request, Form, APIRouter
 )
+from starlette import status as http_status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -20,18 +20,14 @@ from pydantic import BaseModel, EmailStr, field_validator
 from dotenv import load_dotenv
 
 # ----------------------- ENV & DB -----------------------
-import os, secrets
-from pathlib import Path
-from dotenv import load_dotenv
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(dotenv_path=ROOT_DIR / ".env", override=False)  # ok if missing on Render
 
-def env(name: str, default: str | None = None) -> str | None:
+def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     v = os.getenv(name)
     return v if (v is not None and v != "") else default
 
-DATABASE_URL = env("DATABASE_URL")
+DATABASE_URL = _env("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL env var is required")
 
@@ -41,24 +37,21 @@ if DATABASE_URL.startswith("postgres://"):
 if DATABASE_URL.startswith("postgresql://") and "+psycopg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
-ADMIN_API_KEY      = env("ADMIN_API_KEY", "")
-ADMIN_WEB_PASSWORD = env("ADMIN_WEB_PASSWORD", "")
+ADMIN_API_KEY      = _env("ADMIN_API_KEY", "")
+ADMIN_WEB_PASSWORD = _env("ADMIN_WEB_PASSWORD", "")
 
-# ALWAYS define this. Use env if present; else generate one and keep it in env for the process.
-ADMIN_WEB_SECRET = env("ADMIN_WEB_SECRET") or os.environ.setdefault(
+# Always define this: use env if present; else generate one for this process.
+ADMIN_WEB_SECRET = _env("ADMIN_WEB_SECRET") or os.environ.setdefault(
     "ADMIN_WEB_SECRET", secrets.token_urlsafe(32)
 )
 
 print("DB driver ->", "postgresql+psycopg" if "+psycopg" in DATABASE_URL else "postgresql")
 print("Session secret source:", "env" if os.getenv("ADMIN_WEB_SECRET") else "generated")
 
-# ----------------------- APP & MIDDLEWARE -----------------------
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+# Create the engine BEFORE any route uses it
+engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
 
+# ----------------------- APP & MIDDLEWARE -----------------------
 app = FastAPI(title="Staff Registry")
 
 app.add_middleware(
@@ -72,7 +65,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ ADMIN_WEB_SECRET is guaranteed to exist here
 app.add_middleware(SessionMiddleware, secret_key=ADMIN_WEB_SECRET, same_site="lax")
 
 # ----------------------- STATIC & TEMPLATES -----------------------
@@ -89,6 +81,13 @@ def require_admin(x_api_key: str = Header(default="")):
     if not ADMIN_API_KEY or x_api_key != ADMIN_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return True
+
+def _validate_uuid(s: str) -> str:
+    try:
+        _UUID(s)  # just validate; we still return the original string
+        return s
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid id")
 
 class StaffCreate(BaseModel):
     given_name: str
@@ -134,13 +133,6 @@ class RoleAssignCreate(BaseModel):
 
 class EndAssignment(BaseModel):
     end_date: _date  # default provided in route
-
-def _validate_uuid(s: str) -> str:
-    try:
-        _UUID(s)  # just validate; we still return the original string
-        return s
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid staff id")
 
 # ----------------------- JSON API -----------------------
 @app.get("/healthz")
@@ -408,7 +400,7 @@ def _fetch_staff_for_list(*, day: _date, role_code: Optional[str], loc_code: Opt
     """
     status_norm = (status or "").strip().lower()
     if status_norm not in ("active", "inactive"):
-        status_norm = ""  # treat as "Any status"
+        status_norm = ""  # Any status
 
     role_code_s = (role_code or "").strip()
     loc_code_s  = (loc_code or "").strip()
@@ -478,12 +470,12 @@ def admin_login(request: Request, password: str = Form(...)):
     if not configured:
         if password.strip():
             request.session["admin"] = True
-            return RedirectResponse("/admin/staff", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
         return HTMLResponse("<h3>Login blocked: set ADMIN_WEB_PASSWORD in .env</h3>", status_code=500)
 
     if password.strip() == configured:
         request.session["admin"] = True
-        return RedirectResponse("/admin/staff", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
     return HTMLResponse(
         "<!doctype html><meta charset='utf-8'><h2>Wrong password</h2>"
@@ -493,18 +485,18 @@ def admin_login(request: Request, password: str = Form(...)):
 @admin.get("/logout")
 def admin_logout(request: Request):
     request.session.clear()
-    return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @admin.get("", response_class=HTMLResponse)
 def admin_home_redirect():
-    return RedirectResponse("/admin/staff", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @admin.get("/staff", response_class=HTMLResponse)
 def admin_staff_list(request: Request, d: Optional[str] = None, q: Optional[str] = None,
                      role: Optional[str] = None, location: Optional[str] = None,
                      status: Optional[str] = None):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
     try:
         day = _date.fromisoformat(d) if d else _date.today()
@@ -548,7 +540,7 @@ def admin_staff_table(request: Request, d: Optional[str] = None, q: Optional[str
 @admin.get("/staff/new", response_class=HTMLResponse)
 def admin_staff_new(request: Request):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     with engine.connect() as c:
         roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY code")).mappings().all()
         locs  = c.execute(sa.text("SELECT code,name FROM location ORDER BY code")).mappings().all()
@@ -569,7 +561,7 @@ def admin_staff_create(
     location_code: Optional[str] = Form(None),
 ):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     try:
         sd = _date.fromisoformat(start_date)
     except Exception:
@@ -579,7 +571,7 @@ def admin_staff_create(
     with engine.begin() as c:
         existing = c.execute(sa.text("SELECT id FROM staff WHERE mobile = :m"), {"m": mobile.strip()}).first()
         if existing:
-            return RedirectResponse(f"/admin/staff/{existing.id}", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(f"/admin/staff/{existing.id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
         staff_id = c.execute(sa.text("""
             INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date)
@@ -595,7 +587,7 @@ def admin_staff_create(
                     VALUES (:sid,:rid,:lid,:sd)
                 """), {"sid": staff_id, "rid": role.id, "lid": loc.id, "sd": sd})
 
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 # -------- CSV export (place BEFORE any /staff/{staff_id} routes) --------
 @admin.get("/staff/export.csv")
@@ -604,7 +596,7 @@ def admin_staff_export_csv(request: Request,
                            role: Optional[str] = None, location: Optional[str] = None,
                            status: Optional[str] = None):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
     try:
         day = _date.fromisoformat(d) if d else _date.today()
@@ -641,7 +633,7 @@ def admin_staff_export_csv(request: Request,
 @admin.get("/staff/{staff_id}", response_class=HTMLResponse)
 def admin_staff_detail(request: Request, staff_id: str):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
     with engine.connect() as c:
         s = c.execute(sa.text("""
@@ -649,7 +641,7 @@ def admin_staff_detail(request: Request, staff_id: str):
           FROM staff WHERE id=:sid
         """), {"sid": staff_id}).mappings().first()
         if not s:
-            return RedirectResponse("/admin/staff", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
         assignments = _fetch_assignments_for(c, staff_id)
         roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY code")).mappings().all()
@@ -687,13 +679,12 @@ def admin_add_assignment(
       - 'Priority' is ignored/removed.
     """
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
     start = _date.fromisoformat(effective_start)
     end = _date.fromisoformat(effective_end) if (effective_end or "").strip() else None
 
     with engine.begin() as c:
-        # resolve role id
         role = c.execute(sa.text("SELECT id FROM role WHERE code=:c"), {"c": role_code}).first()
         if not role:
             if request.headers.get("hx-request"):
@@ -703,9 +694,8 @@ def admin_add_assignment(
                     {"request": request, "s_id": staff_id, "assignments": assignments},
                     status_code=400
                 )
-            return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
-        # resolve location id (treat empty/— as None)
         loc_code = (location_code or "").strip()
         if loc_code in ("", "—"):
             loc_id = None
@@ -713,7 +703,6 @@ def admin_add_assignment(
             loc = c.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": loc_code}).first()
             loc_id = loc.id if loc else None
 
-        # is there an assignment active ON start?
         current = c.execute(sa.text("""
             SELECT id, role_id, location_id, effective_start, effective_end
               FROM staff_role_assignment
@@ -724,20 +713,16 @@ def admin_add_assignment(
              LIMIT 1
         """), {"sid": staff_id, "st": start}).mappings().first()
 
-        # if current is the same assignment (same role/location), no-op
         if current and current.role_id == role.id and (
             (current.location_id is None and loc_id is None) or current.location_id == loc_id
         ):
-            # if the user provided an end date, allow updating the open assignment end
             if end and (current.effective_end is None or current.effective_end != end):
                 c.execute(sa.text("""
                     UPDATE staff_role_assignment
                        SET effective_end = :en
                      WHERE id = :aid
                 """), {"en": end, "aid": current.id})
-            # done
         else:
-            # End any currently active assignment the day before the new one starts
             if current:
                 new_prev_end = start - timedelta(days=1)
                 c.execute(sa.text("""
@@ -747,14 +732,12 @@ def admin_add_assignment(
                        AND (effective_end IS NULL OR effective_end > :en)
                 """), {"en": new_prev_end, "aid": current.id})
 
-            # insert new assignment (no priority column)
             c.execute(sa.text("""
                 INSERT INTO staff_role_assignment
                     (staff_id, role_id, location_id, effective_start, effective_end)
                 VALUES (:sid, :rid, :lid, :st, :en)
             """), {"sid": staff_id, "rid": role.id, "lid": loc_id, "st": start, "en": end})
 
-    # HTMX partial refresh
     if request.headers.get("hx-request"):
         with engine.connect() as c2:
             assignments = _fetch_assignments_for(c2, staff_id)
@@ -763,7 +746,7 @@ def admin_add_assignment(
             {"request": request, "s_id": staff_id, "assignments": assignments}
         )
 
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @admin.post("/staff/{staff_id}/assign/{assignment_id}/end")
 def admin_end_assignment(
@@ -771,7 +754,7 @@ def admin_end_assignment(
     end_date: Optional[str] = Form(None)
 ):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
     d = _date.fromisoformat(end_date) if end_date else _date.today()
     with engine.begin() as c:
@@ -793,21 +776,17 @@ def admin_end_assignment(
             {"request": request, "s_id": staff_id, "assignments": assignments}
         )
 
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @admin.post("/staff/{staff_id}/end")
 def admin_end_staff(request: Request, staff_id: str, end_date: str = Form("")):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
-    # Default to today if blank
     d = _date.fromisoformat(end_date) if end_date else _date.today()
 
     with engine.begin() as c:
-        # End the person
         c.execute(sa.text("UPDATE staff SET end_date=:d WHERE id=:sid"), {"d": d, "sid": staff_id})
-
-        # Also end any assignments that are active on that date
         c.execute(sa.text("""
             UPDATE staff_role_assignment
                SET effective_end = :d
@@ -816,27 +795,27 @@ def admin_end_staff(request: Request, staff_id: str, end_date: str = Form("")):
                AND (effective_end IS NULL OR :d < effective_end)
         """), {"sid": staff_id, "d": d})
 
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @admin.post("/staff/{staff_id}/reactivate")
 def admin_reactivate_staff(request: Request, staff_id: str):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     with engine.begin() as c:
         c.execute(sa.text("UPDATE staff SET end_date=NULL WHERE id=:sid"), {"sid": staff_id})
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @admin.get("/staff/{staff_id}/edit", response_class=HTMLResponse)
 def admin_staff_edit(request: Request, staff_id: str):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     with engine.connect() as c:
         s = c.execute(sa.text("""
           SELECT id, given_name, family_name, display_name, mobile, email, start_date, end_date
           FROM staff WHERE id=:sid
         """), {"sid": staff_id}).mappings().first()
         if not s:
-            return RedirectResponse("/admin/staff", status_code=status.HTTP_303_SEE_OTHER)
+            return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse("admin_staff_edit.html", {"request": request, "s": s})
 
 @admin.post("/staff/{staff_id}/update")
@@ -850,7 +829,7 @@ def admin_staff_update(
     end_date: Optional[str] = Form(None),
 ):
     if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
     try:
         sd = _date.fromisoformat(start_date)
@@ -890,7 +869,7 @@ def admin_staff_update(
             "m": mobile.strip(), "e": (email or None), "sd": sd, "ed": ed, "sid": staff_id
         })
 
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 # Register router
 app.include_router(admin)
