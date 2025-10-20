@@ -1,9 +1,44 @@
+# app/core/db.py
 from __future__ import annotations
-import sqlalchemy as sa
-from .config import DATABASE_URL
-from .constants import ALLOWED_ROLES, ALLOWED_LOCS
+import os
+from typing import Generator
 
-engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+
+# Pull from env if set (Render), otherwise fall back to your config default.
+try:
+    from app.core.config import DATABASE_URL as CONFIG_DATABASE_URL  # optional fallback
+except Exception:
+    CONFIG_DATABASE_URL = "sqlite:///./dev.db"
+
+DATABASE_URL = os.getenv("DATABASE_URL", CONFIG_DATABASE_URL)
+
+# Sync engine (your code uses sa.text(...) and engine.connect())
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    future=True,
+)
+
+SessionLocal = sessionmaker(
+    bind=engine,
+    autoflush=False,
+    autocommit=False,
+    expire_on_commit=False,
+    future=True,
+)
+
+def get_session() -> Generator[Session, None, None]:
+    """FastAPI dependency that yields a DB session."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# --- Optional schema bootstrap + seed (kept from your version) ---
+from app.core.constants import ALLOWED_ROLES, ALLOWED_LOCS
 
 def bootstrap_schema() -> None:
     """Create tables + seed basic data. Safe to run repeatedly."""
@@ -91,7 +126,6 @@ def bootstrap_schema() -> None:
         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, timezone = EXCLUDED.timezone
         """)
 
-        # Prune deprecated codes if unused
         roles_csv = ", ".join([f"'{x}'" for x in ALLOWED_ROLES])
         locs_csv  = ", ".join([f"'{x}'" for x in ALLOWED_LOCS])
 
@@ -105,3 +139,5 @@ def bootstrap_schema() -> None:
          WHERE l.code NOT IN ({locs_csv})
            AND NOT EXISTS (SELECT 1 FROM staff_role_assignment a WHERE a.location_id = l.id)
         """)
+
+__all__ = ["engine", "SessionLocal", "get_session", "bootstrap_schema", "DATABASE_URL"]
