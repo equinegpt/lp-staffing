@@ -51,6 +51,89 @@ print("Session secret source:", "env" if os.getenv("ADMIN_WEB_SECRET") else "gen
 # Create the engine BEFORE any route uses it
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
 
+# --- bootstrap schema on first run (idempotent) ---
+def _bootstrap_schema():
+    with engine.begin() as c:
+        # UUIDs
+        c.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+
+        # core tables
+        c.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS role (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          code TEXT UNIQUE NOT NULL,
+          label TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """)
+        c.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS location (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          code TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          timezone TEXT NOT NULL DEFAULT 'Australia/Melbourne',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """)
+        c.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS staff (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          given_name  TEXT NOT NULL,
+          family_name TEXT NOT NULL,
+          display_name TEXT NOT NULL,
+          mobile TEXT NOT NULL UNIQUE,
+          email  TEXT,
+          start_date DATE NOT NULL,
+          end_date   DATE,
+          status TEXT NOT NULL DEFAULT 'ACTIVE',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """)
+        c.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS staff_role_assignment (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          staff_id UUID NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+          role_id  UUID NOT NULL REFERENCES role(id),
+          location_id UUID REFERENCES location(id),
+          effective_start DATE NOT NULL,
+          effective_end   DATE,
+          priority INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """)
+        c.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS device (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          staff_id UUID NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+          platform TEXT NOT NULL CHECK (platform IN ('iOS','Android')),
+          token TEXT NOT NULL UNIQUE,
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """)
+        # helpful indexes
+        c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_staff_dates  ON staff_role_assignment (staff_id, effective_start, effective_end)")
+        c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_role        ON staff_role_assignment (role_id)")
+        c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_location    ON staff_role_assignment (location_id)")
+
+        # seed minimal data (safe to re-run)
+        c.exec_driver_sql("""
+        INSERT INTO role (code,label) VALUES
+          ('RIDER','Rider'),
+          ('STRAPPER','Strapper'),
+          ('TRACKWORK','Trackwork')
+        ON CONFLICT (code) DO NOTHING
+        """)
+        c.exec_driver_sql("""
+        INSERT INTO location (code,name,timezone) VALUES
+          ('CRANBOURNE','Cranbourne','Australia/Melbourne'),
+          ('FLEMINGTON','Flemington','Australia/Melbourne')
+        ON CONFLICT (code) DO NOTHING
+        """)
+
+@app.on_event("startup")
+def _startup_bootstrap():
+    _bootstrap_schema()
+
 # ----------------------- APP & MIDDLEWARE -----------------------
 app = FastAPI(title="Staff Registry")
 
