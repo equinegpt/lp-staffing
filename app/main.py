@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import date as _date, timedelta
 from uuid import UUID as _UUID
+from http import HTTPStatus as http_status
 
 import sqlalchemy as sa
 from fastapi import (
