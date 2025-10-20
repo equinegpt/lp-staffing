@@ -1,43 +1,32 @@
 # app/main.py
-import csv
-import io
-import os
-from contextlib import asynccontextmanager
-from datetime import date as _date, timedelta
+import os, io, csv, secrets
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional, List, Dict
+from datetime import date as _date, timedelta
 from uuid import UUID as _UUID
-from http import HTTPStatus as http_status
 
 import sqlalchemy as sa
-from dotenv import load_dotenv
 from fastapi import (
-    APIRouter,
-    Depends,
-    FastAPI,
-    Form,
-    Header,
-    HTTPException,
-    Query,
-    Request,
+    FastAPI, Query, Header, HTTPException, Depends,
+    Request, Form, APIRouter
 )
+from fastapi import status as http_status  # <-- correct status import
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, EmailStr, field_validator
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import RedirectResponse, HTMLResponse
-import secrets as _secrets
+from starlette.responses import RedirectResponse, HTMLResponse, StreamingResponse
+from pydantic import BaseModel, EmailStr, field_validator
+from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
 # ----------------------- ENV -----------------------
 ROOT_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(dotenv_path=ROOT_DIR / ".env", override=False)  # fine if missing on Render
 
-
-def env(name: str, default: Optional[str] = None) -> Optional[str]:
+def env(name: str, default: str | None = None) -> str | None:
     v = os.getenv(name)
     return v if (v is not None and v != "") else default
-
 
 DATABASE_URL = env("DATABASE_URL")
 if not DATABASE_URL:
@@ -45,13 +34,13 @@ if not DATABASE_URL:
 
 # Normalize to psycopg v3 driver for SQLAlchemy
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://") :]
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 if DATABASE_URL.startswith("postgresql://") and "+psycopg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
-ADMIN_API_KEY = env("ADMIN_API_KEY", "")
+ADMIN_API_KEY      = env("ADMIN_API_KEY", "")
 ADMIN_WEB_PASSWORD = env("ADMIN_WEB_PASSWORD", "")
-ADMIN_WEB_SECRET = env("ADMIN_WEB_SECRET") or os.environ.setdefault(
+ADMIN_WEB_SECRET   = env("ADMIN_WEB_SECRET") or os.environ.setdefault(
     "ADMIN_WEB_SECRET", secrets.token_urlsafe(32)
 )
 
@@ -62,7 +51,7 @@ print("Session secret source:", "env" if os.getenv("ADMIN_WEB_SECRET") else "gen
 engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
 
 # ----------------------- SCHEMA BOOTSTRAP -----------------------
-def _bootstrap_schema() -> None:
+def _bootstrap_schema():
     """Create tables / seed minimal data. Safe to run repeatedly."""
     with engine.begin() as c:
         # Extensions (ignore if not permitted)
@@ -72,27 +61,22 @@ def _bootstrap_schema() -> None:
             pass
 
         # Tables
-        c.exec_driver_sql(
-            """
+        c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS role (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
           code TEXT UNIQUE NOT NULL,
           label TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )"""
-        )
-        c.exec_driver_sql(
-            """
+        )""")
+        c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS location (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
           code TEXT UNIQUE NOT NULL,
           name TEXT NOT NULL,
           timezone TEXT NOT NULL DEFAULT 'Australia/Melbourne',
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )"""
-        )
-        c.exec_driver_sql(
-            """
+        )""")
+        c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS staff (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
           given_name  TEXT NOT NULL,
@@ -104,10 +88,8 @@ def _bootstrap_schema() -> None:
           end_date   DATE,
           status TEXT NOT NULL DEFAULT 'ACTIVE',
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )"""
-        )
-        c.exec_driver_sql(
-            """
+        )""")
+        c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS staff_role_assignment (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
           staff_id UUID NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
@@ -117,56 +99,48 @@ def _bootstrap_schema() -> None:
           effective_end   DATE,
           priority INTEGER NOT NULL DEFAULT 0,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )"""
-        )
-        c.exec_driver_sql(
-            """
+        )""")
+        c.exec_driver_sql("""
         CREATE TABLE IF NOT EXISTS device (
           id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
           staff_id UUID NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
           platform TEXT NOT NULL CHECK (platform IN ('iOS','Android')),
           token TEXT NOT NULL UNIQUE,
           last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )"""
-        )
+        )""")
 
         # Indexes
-        c.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS ix_sra_staff_dates  ON staff_role_assignment (staff_id, effective_start, effective_end)"
-        )
-        c.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS ix_sra_role        ON staff_role_assignment (role_id)"
-        )
-        c.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS ix_sra_location    ON staff_role_assignment (location_id)"
-        )
+        c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_staff_dates  ON staff_role_assignment (staff_id, effective_start, effective_end)")
+        c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_role        ON staff_role_assignment (role_id)")
+        c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sra_location    ON staff_role_assignment (location_id)")
 
-        # Seed data (idempotent)
-        c.exec_driver_sql(
-            """
+        # Seed ROLES (idempotent)
+        c.exec_driver_sql("""
         INSERT INTO role (code,label) VALUES
           ('RIDER','Rider'),
           ('STRAPPER','Strapper'),
-          ('TRACKWORK','Trackwork')
-        ON CONFLICT (code) DO NOTHING
-        """
-        )
-        c.exec_driver_sql(
-            """
+          ('MEDIA','Media'),
+          ('TREADMILL','Treadmill'),
+          ('WATERWALKERS','WaterWalkers'),
+          ('FARRIER','Farrier'),
+          ('VET','Vet')
+        ON CONFLICT (code) DO NOTHING;
+        """)
+
+        # Seed LOCATIONS (idempotent)
+        c.exec_driver_sql("""
         INSERT INTO location (code,name,timezone) VALUES
-          ('CRANBOURNE','Cranbourne','Australia/Melbourne'),
-          ('FLEMINGTON','Flemington','Australia/Melbourne')
-        ON CONFLICT (code) DO NOTHING
-        """
-        )
+          ('FARM','Farm','Australia/Melbourne'),
+          ('FLEMINGTON','Flemington','Australia/Melbourne'),
+          ('PAKENHAM','Pakenham','Australia/Melbourne')
+        ON CONFLICT (code) DO NOTHING;
+        """)
 
-
-# Lifespan instead of @app.on_event so we don't trip ordering issues
+# Lifespan so bootstrapping happens safely before the app serves
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _bootstrap_schema()
     yield
-
 
 # ----------------------- APP & MIDDLEWARE -----------------------
 app = FastAPI(title="Staff Registry", lifespan=lifespan)
@@ -174,10 +148,8 @@ app = FastAPI(title="Staff Registry", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
+        "http://localhost:3000", "http://127.0.0.1:3000",
+        "http://localhost:5173", "http://127.0.0.1:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -201,14 +173,26 @@ def require_admin(x_api_key: str = Header(default="")):
         raise HTTPException(status_code=401, detail="Unauthorized")
     return True
 
-
 def _validate_uuid(s: str) -> str:
     try:
-        _UUID(s)  # just validate; we still return the original string
+        _UUID(s)  # only validate; still return original string
         return s
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid id")
 
+def staff_to_dict(r: Dict) -> Dict:
+    """Serialize a staff row (or mapping) to the app-friendly JSON shape."""
+    return {
+        "id": str(r.get("id", "")),
+        "first_name": r.get("given_name"),
+        "last_name": r.get("family_name"),
+        # prefer label, fall back to code
+        "role": r.get("role_label") or r.get("role_code"),
+        "phone": r.get("mobile"),
+        "email": r.get("email"),
+        "is_active": bool(r.get("is_active", True)),
+        "notes": None,
+    }
 
 class StaffCreate(BaseModel):
     given_name: str
@@ -224,10 +208,8 @@ class StaffCreate(BaseModel):
     def _strip_mobile(cls, v: str) -> str:
         return v.strip()
 
-
 class StaffEnd(BaseModel):
     end_date: _date
-
 
 class DeviceCreate(BaseModel):
     staff_id: str
@@ -242,7 +224,6 @@ class DeviceCreate(BaseModel):
             raise ValueError("platform must be 'iOS' or 'Android'")
         return v2
 
-
 class RoleAssignCreate(BaseModel):
     role_code: str
     location_code: Optional[str] = None
@@ -255,10 +236,8 @@ class RoleAssignCreate(BaseModel):
     def _strip_codes(cls, v):
         return v.strip() if v else v
 
-
 class EndAssignment(BaseModel):
     end_date: _date  # default provided in route
-
 
 # ----------------------- JSON API -----------------------
 @app.get("/healthz")
@@ -267,20 +246,17 @@ def healthz():
         c.exec_driver_sql("SELECT 1")
     return {"ok": True}
 
-
 @app.get("/roles")
 def get_roles() -> List[Dict]:
-    sql = sa.text("SELECT code, label FROM role ORDER BY code")
+    sql = sa.text("SELECT code, label FROM role ORDER BY label")
     with engine.connect() as c:
         return [dict(r) for r in c.execute(sql).mappings().all()]
-
 
 @app.get("/locations")
 def get_locations() -> List[Dict]:
-    sql = sa.text("SELECT code, name, timezone FROM location ORDER BY code")
+    sql = sa.text("SELECT code, name, timezone FROM location ORDER BY name")
     with engine.connect() as c:
         return [dict(r) for r in c.execute(sql).mappings().all()]
-
 
 @app.get("/staff")
 def get_staff(
@@ -288,8 +264,7 @@ def get_staff(
     role: Optional[str] = Query(None, description="Role code e.g., RIDER"),
     location: Optional[str] = Query(None, description="Location code e.g., CRANBOURNE"),
 ) -> List[Dict]:
-    sql = sa.text(
-        """
+    sql = sa.text("""
     SELECT
       s.id, s.given_name, s.family_name, s.display_name, s.mobile, s.email,
       s.status, s.start_date, s.end_date
@@ -308,18 +283,15 @@ def get_staff(
           AND COALESCE(:loc_code,  l.code) = l.code
       )
     ORDER BY s.family_name, s.given_name
-    """
-    )
+    """)
     params = {"D": d, "role_code": role, "loc_code": location}
     with engine.connect() as c:
         return [dict(r) for r in c.execute(sql, params).mappings().all()]
 
-
 @app.get("/staff/search", dependencies=[Depends(require_admin)])
 def search_staff(q: str) -> List[Dict]:
     q_like = f"%{q.strip()}%"
-    sql = sa.text(
-        """
+    sql = sa.text("""
       SELECT id, given_name, family_name, display_name, mobile, email
       FROM staff
       WHERE mobile ILIKE :q
@@ -328,16 +300,13 @@ def search_staff(q: str) -> List[Dict]:
          OR display_name ILIKE :q
       ORDER BY family_name, given_name
       LIMIT 25
-    """
-    )
+    """)
     with engine.connect() as c:
         return [dict(r) for r in c.execute(sql, {"q": q_like}).mappings().all()]
 
-
 @app.get("/staff/{staff_id}/roles", dependencies=[Depends(require_admin)])
 def list_staff_roles(staff_id: str) -> List[Dict]:
-    sql = sa.text(
-        """
+    sql = sa.text("""
     SELECT
       a.id,
       r.code AS role_code,
@@ -351,66 +320,45 @@ def list_staff_roles(staff_id: str) -> List[Dict]:
     LEFT JOIN location l ON l.id = a.location_id
     WHERE a.staff_id = :sid
     ORDER BY a.effective_start DESC, r.code
-    """
-    )
+    """)
     with engine.connect() as c:
         rows = c.execute(sql, {"sid": staff_id}).mappings().all()
         return [dict(r) for r in rows]
-
 
 @app.post("/staff", status_code=201, dependencies=[Depends(require_admin)], operation_id="create_staff_v1")
 def create_staff(payload: StaffCreate):
     display_name = f"{payload.given_name} {payload.family_name}".strip()
     with engine.begin() as c:
-        existing = c.execute(
-            sa.text(
-                """
+        existing = c.execute(sa.text("""
             SELECT id, given_name, family_name, mobile, email, start_date, end_date
             FROM staff WHERE mobile = :m
-        """
-            ),
-            {"m": payload.mobile},
-        ).mappings().first()
+        """), {"m": payload.mobile}).mappings().first()
         if existing:
             raise HTTPException(
                 status_code=409,
                 detail={"message": "Staff with that mobile already exists.", "existing": dict(existing)},
             )
 
-        staff_id = c.execute(
-            sa.text(
-                """
+        staff_id = c.execute(sa.text("""
             INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date)
             VALUES (:gn, :fn, :dn, :mobile, :email, :sd)
             RETURNING id
-        """
-            ),
-            {
-                "gn": payload.given_name,
-                "fn": payload.family_name,
-                "dn": display_name,
-                "mobile": payload.mobile,
-                "email": payload.email,
-                "sd": payload.start_date,
-            },
-        ).scalar_one()
+        """), {
+            "gn": payload.given_name, "fn": payload.family_name, "dn": display_name,
+            "mobile": payload.mobile, "email": payload.email, "sd": payload.start_date
+        }).scalar_one()
 
         if payload.primary_role_code and payload.location_code:
             role = c.execute(sa.text("SELECT id FROM role WHERE code = :c"), {"c": payload.primary_role_code}).first()
             if not role:
                 raise HTTPException(status_code=400, detail="Unknown role code.")
-            loc = c.execute(sa.text("SELECT id FROM location WHERE code = :c"), {"c": payload.location_code}).first()
+            loc  = c.execute(sa.text("SELECT id FROM location WHERE code = :c"), {"c": payload.location_code}).first()
             if not loc:
                 raise HTTPException(status_code=400, detail="Unknown location code.")
-            c.execute(
-                sa.text(
-                    """
+            c.execute(sa.text("""
                 INSERT INTO staff_role_assignment (staff_id, role_id, location_id, effective_start)
                 VALUES (:sid, :rid, :lid, :sd)
-            """
-                ),
-                {"sid": staff_id, "rid": role.id, "lid": loc.id, "sd": payload.start_date},
-            )
+            """), {"sid": staff_id, "rid": role.id, "lid": loc.id, "sd": payload.start_date})
 
     return {
         "id": str(staff_id),
@@ -422,7 +370,6 @@ def create_staff(payload: StaffCreate):
         "start_date": str(payload.start_date),
         "role_assigned": bool(payload.primary_role_code and payload.location_code),
     }
-
 
 @app.post("/staff/{staff_id}/roles", status_code=201, dependencies=[Depends(require_admin)])
 def add_role_assignment(staff_id: str, payload: RoleAssignCreate):
@@ -441,9 +388,7 @@ def add_role_assignment(staff_id: str, payload: RoleAssignCreate):
             loc_id = loc.id
 
         start, end = payload.effective_start, payload.effective_end
-        overlap = c.execute(
-            sa.text(
-                """
+        overlap = c.execute(sa.text("""
             SELECT a.id
               FROM staff_role_assignment a
              WHERE a.staff_id = :sid
@@ -452,23 +397,17 @@ def add_role_assignment(staff_id: str, payload: RoleAssignCreate):
                AND a.effective_start <= COALESCE(:new_end, DATE '9999-12-31')
                AND COALESCE(a.effective_end, DATE '9999-12-31') >= :new_start
              LIMIT 1
-        """
-            ),
-            {"sid": staff_id, "rid": role.id, "lid": loc_id, "new_start": start, "new_end": end},
-        ).first()
+        """), {"sid": staff_id, "rid": role.id, "lid": loc_id,
+               "new_start": start, "new_end": end}).first()
         if overlap:
             raise HTTPException(status_code=409, detail=f"Overlapping assignment exists (id={overlap.id}).")
 
-        new_id = c.execute(
-            sa.text(
-                """
+        new_id = c.execute(sa.text("""
             INSERT INTO staff_role_assignment (staff_id, role_id, location_id, effective_start, effective_end, priority)
             VALUES (:sid, :rid, :lid, :st, :en, :p)
             RETURNING id
-        """
-            ),
-            {"sid": staff_id, "rid": role.id, "lid": loc_id, "st": start, "en": end, "p": payload.priority},
-        ).scalar_one()
+        """), {"sid": staff_id, "rid": role.id, "lid": loc_id,
+               "st": start, "en": end, "p": payload.priority}).scalar_one()
 
     return {
         "id": str(new_id),
@@ -480,40 +419,28 @@ def add_role_assignment(staff_id: str, payload: RoleAssignCreate):
         "priority": payload.priority,
     }
 
-
 @app.post("/staff/{staff_id}/roles/{assignment_id}/end", dependencies=[Depends(require_admin)])
 def end_role_assignment(
     staff_id: str,
     assignment_id: str,
-    body: EndAssignment = Depends(lambda: EndAssignment(end_date=_date.today())),
+    body: EndAssignment = Depends(lambda: EndAssignment(end_date=_date.today()))
 ):
     with engine.begin() as c:
-        row = c.execute(
-            sa.text(
-                """
+        row = c.execute(sa.text("""
             SELECT effective_start
             FROM staff_role_assignment
             WHERE id = :aid AND staff_id = :sid
-        """
-            ),
-            {"aid": assignment_id, "sid": staff_id},
-        ).first()
+        """), {"aid": assignment_id, "sid": staff_id}).first()
         if not row:
             raise HTTPException(status_code=404, detail="Assignment not found for staff.")
         if body.end_date < row.effective_start:
             raise HTTPException(status_code=400, detail="End date cannot be before start date.")
-        c.execute(
-            sa.text(
-                """
+        c.execute(sa.text("""
             UPDATE staff_role_assignment
                SET effective_end = :end_date
              WHERE id = :aid
-        """
-            ),
-            {"end_date": body.end_date, "aid": assignment_id},
-        )
+        """), {"end_date": body.end_date, "aid": assignment_id})
     return {"ok": True, "assignment_id": assignment_id, "ended_on": str(body.end_date)}
-
 
 @app.post("/staff/{staff_id}/end", dependencies=[Depends(require_admin)])
 def end_staff(staff_id: str, body: StaffEnd):
@@ -521,9 +448,9 @@ def end_staff(staff_id: str, body: StaffEnd):
         exists = c.execute(sa.text("SELECT 1 FROM staff WHERE id=:sid"), {"sid": staff_id}).first()
         if not exists:
             raise HTTPException(status_code=404, detail="Staff not found.")
-        c.execute(sa.text("UPDATE staff SET end_date=:d WHERE id=:sid"), {"d": body.end_date, "sid": staff_id})
+        c.execute(sa.text("UPDATE staff SET end_date=:d WHERE id=:sid"),
+                  {"d": body.end_date, "sid": staff_id})
     return {"ok": True, "staff_id": staff_id, "ended_on": str(body.end_date)}
-
 
 @app.post("/staff/{staff_id}/reactivate", dependencies=[Depends(require_admin)])
 def reactivate_staff(staff_id: str):
@@ -534,41 +461,30 @@ def reactivate_staff(staff_id: str):
         c.execute(sa.text("UPDATE staff SET end_date=NULL WHERE id=:sid"), {"sid": staff_id})
     return {"ok": True, "staff_id": staff_id, "ended_on": None}
 
-
 @app.post("/devices", status_code=201)
 def register_device(payload: DeviceCreate):
     with engine.begin() as c:
         ok = c.execute(sa.text("SELECT 1 FROM staff WHERE id=:sid"), {"sid": payload.staff_id}).first()
         if not ok:
             raise HTTPException(status_code=404, detail="Staff not found.")
-        c.execute(
-            sa.text(
-                """
+        c.execute(sa.text("""
             INSERT INTO device (staff_id, platform, token)
             VALUES (:sid, :pf, :tk)
             ON CONFLICT (token) DO UPDATE
                 SET staff_id = EXCLUDED.staff_id,
                     platform  = EXCLUDED.platform,
                     last_seen_at = now()
-        """
-            ),
-            {"sid": payload.staff_id, "pf": payload.platform, "tk": payload.token},
-        )
+        """), {"sid": payload.staff_id, "pf": payload.platform, "tk": payload.token})
     return {"ok": True}
-
 
 # ----------------------- ADMIN WEB (APIRouter) -----------------------
 admin = APIRouter(prefix="/admin", tags=["admin"])
 
-
 def _admin_only(request: Request) -> bool:
     return bool(request.session.get("admin"))
 
-
 def _fetch_assignments_for(conn, staff_id: str):
-    return conn.execute(
-        sa.text(
-            """
+    return conn.execute(sa.text("""
       SELECT a.id, r.code AS role_code, r.label AS role_label,
              COALESCE(l.code,'—') AS location_code,
              a.effective_start, a.effective_end, a.priority
@@ -577,16 +493,11 @@ def _fetch_assignments_for(conn, staff_id: str):
         LEFT JOIN location l ON l.id = a.location_id
        WHERE a.staff_id = :sid
        ORDER BY a.effective_start DESC, r.code
-    """
-        ),
-        {"sid": staff_id},
-    ).mappings().all()
-
+    """), {"sid": staff_id}).mappings().all()
 
 # Common list query (used by list, table partial, CSV)
-def _fetch_staff_for_list(
-    *, day: _date, role_code: Optional[str], loc_code: Optional[str], status: Optional[str], q: Optional[str]
-) -> List[Dict]:
+def _fetch_staff_for_list(*, day: _date, role_code: Optional[str], loc_code: Optional[str],
+                          status: Optional[str], q: Optional[str]) -> List[Dict]:
     """
     One row per staff, with the most-relevant assignment on `day`.
     is_active := base_active (start/end) AND has_active_assignment(on day).
@@ -597,12 +508,11 @@ def _fetch_staff_for_list(
         status_norm = ""  # Any status
 
     role_code_s = (role_code or "").strip()
-    loc_code_s = (loc_code or "").strip()
-    q_raw = (q or "").strip()
-    q_like = f"%{q_raw}%" if q_raw else ""
+    loc_code_s  = (loc_code or "").strip()
+    q_raw       = (q or "").strip()
+    q_like      = f"%{q_raw}%" if q_raw else ""
 
-    sql = sa.text(
-        """
+    sql = sa.text("""
     WITH base AS (
       SELECT
         s.*,
@@ -641,14 +551,13 @@ def _fetch_staff_for_list(
            b.given_name   ILIKE :q_like OR
            b.family_name  ILIKE :q_like)
     ORDER BY b.family_name, b.given_name
-    """
-    )
+    """)
 
     params = {
         "D": day,
         "status": status_norm,
         "role_code": role_code_s,
-        "loc_code": loc_code_s,
+        "loc_code":  loc_code_s,
         "q": q_raw,
         "q_like": q_like,
     }
@@ -656,57 +565,49 @@ def _fetch_staff_for_list(
     with engine.connect() as c:
         return [dict(r) for r in c.execute(sql, params).mappings().all()]
 
-
+# ----------------------- Admin Login -----------------------
 @admin.get("/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
 
-
 @admin.post("/login")
 def admin_login(request: Request, password: str = Form(...)):
     configured = (ADMIN_WEB_PASSWORD or "").strip()
-
-    # If no password configured, allow any non-empty password
     if not configured:
         if password.strip():
             request.session["admin"] = True
-            return RedirectResponse("/admin/staff", status_code=http_status.SEE_OTHER)
-        # show error on the *same* page
-        return templates.TemplateResponse(
-            "login.html", {"request": request, "error": "Please enter a password."},
-            status_code=400
-        )
+            return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
+        return HTMLResponse("<h3>Login blocked: set ADMIN_WEB_PASSWORD in .env</h3>", status_code=500)
 
-    # Normal flow
     if password.strip() == configured:
         request.session["admin"] = True
-        return RedirectResponse("/admin/staff", status_code=http_status.SEE_OTHER)
+        return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
-    # Wrong password — render login page with error
-    return templates.TemplateResponse(
-        "login.html", {"request": request, "error": "Wrong password"},
-        status_code=401
-    )
+    # stay on same page on error
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Wrong password"}, status_code=401)
 
 @admin.get("/logout")
 def admin_logout(request: Request):
     request.session.clear()
-    return RedirectResponse(url="/admin/login", status_code=302)
+    return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @admin.get("", response_class=HTMLResponse)
 def admin_home_redirect():
     return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
-
+# ----------------------- Admin Staff (HTML + JSON) -----------------------
 @admin.get("/staff", response_class=HTMLResponse)
-def admin_staff_list(
-    request: Request,
-    d: Optional[str] = None,
-    q: Optional[str] = None,
-    role: Optional[str] = None,
-    location: Optional[str] = None,
-    status: Optional[str] = None,
-):
+def admin_staff_list(request: Request,
+                     d: Optional[str] = None, q: Optional[str] = None,
+                     role: Optional[str] = None, location: Optional[str] = None,
+                     status: Optional[str] = None):
+    # JSON branch for apps
+    if "application/json" in (request.headers.get("accept") or ""):
+        day = _date.today()
+        rows = _fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
+        return [staff_to_dict(r) for r in rows]
+
+    # HTML branch for admin
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -716,36 +617,136 @@ def admin_staff_list(
         day = _date.today()
 
     with engine.connect() as c:
-        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY code")).mappings().all()
-        locs = c.execute(sa.text("SELECT code,name FROM location ORDER BY code")).mappings().all()
+        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
+        locs  = c.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
 
     staff_rows = _fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
 
-    return templates.TemplateResponse(
-        "admin_staff_list.html",
-        {
-            "request": request,
-            "day": day.isoformat(),
-            "staff": staff_rows,
-            "roles": roles,
-            "locations": locs,
-            "active_role": role or "",
-            "active_loc": location or "",
-            "status": (status or ""),
-            "q": q or "",
-        },
-    )
+    return templates.TemplateResponse("admin_staff_list.html", {
+        "request": request,
+        "day": day.isoformat(),
+        "staff": staff_rows,
+        "roles": roles,
+        "locations": locs,
+        "active_role": role or "",
+        "active_loc": location or "",
+        "status": (status or ""),
+        "q": q or ""
+    })
 
+# JSON create (keeps old form endpoint /admin/staff/create)
+@admin.post("/staff")
+async def admin_staff_create_json(request: Request):
+    if "application/json" in (request.headers.get("accept") or ""):
+        data = await request.json()
+        gn = data.get("first_name") or data.get("firstName") or data.get("given_name")
+        fn = data.get("last_name")  or data.get("lastName")  or data.get("family_name")
+        phone = data.get("phone") or data.get("mobile")
+        email = data.get("email")
+        is_active = data.get("is_active", data.get("isActive", True))
 
+        if not (gn and fn and phone):
+            raise HTTPException(status_code=400, detail="first_name, last_name, phone required")
+
+        display_name = f"{gn} {fn}".strip()
+        today = _date.today()
+
+        with engine.begin() as c:
+            # upsert-on-mobile? — here we enforce uniqueness and 409 on dup
+            dup = c.execute(sa.text("SELECT id FROM staff WHERE mobile=:m"), {"m": phone.strip()}).first()
+            if dup:
+                raise HTTPException(status_code=409, detail="Mobile already exists for another staff")
+
+            staff_id = c.execute(sa.text("""
+                INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date, end_date)
+                VALUES (:gn,:fn,:dn,:m,:e,:sd,:ed)
+                RETURNING id
+            """), {
+                "gn": gn, "fn": fn, "dn": display_name, "m": phone.strip(),
+                "e": email, "sd": today, "ed": (None if is_active else today)
+            }).scalar_one()
+
+        # return a JSON row shaped for the app
+        row = {
+            "id": str(staff_id),
+            "given_name": gn, "family_name": fn,
+            "role_label": None, "role_code": None,
+            "mobile": phone, "email": email,
+            "is_active": bool(is_active)
+        }
+        return staff_to_dict(row)
+
+    # Non-JSON requests (shouldn’t hit here; form flow uses /admin/staff/create)
+    return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
+
+# JSON update
+@admin.put("/staff/{staff_id}")
+async def admin_staff_update_json(staff_id: str, request: Request):
+    data = await request.json()
+    # derive patches
+    gn = data.get("first_name") or data.get("firstName")
+    fn = data.get("last_name")  or data.get("lastName")
+    phone = data.get("phone")
+    email = data.get("email")
+    is_active = data.get("is_active")
+    if is_active is None:
+        is_active = data.get("isActive")
+
+    with engine.begin() as c:
+        exists = c.execute(sa.text("SELECT id FROM staff WHERE id=:sid"), {"sid": staff_id}).first()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Staff not found")
+
+        # build dynamic SETs
+        sets = []
+        params = {"sid": staff_id}
+        if gn is not None:
+            sets.append("given_name=:gn"); params["gn"] = gn
+        if fn is not None:
+            sets.append("family_name=:fn"); params["fn"] = fn
+        if gn is not None or fn is not None:
+            sets.append("display_name=:dn")
+            params["dn"] = f"{gn or ''} {fn or ''}".strip()
+        if phone is not None:
+            sets.append("mobile=:m"); params["m"] = phone
+        if email is not None:
+            sets.append("email=:e"); params["e"] = email
+        if is_active is not None:
+            if bool(is_active):
+                sets.append("end_date=NULL")
+            else:
+                sets.append("end_date=:ed"); params["ed"] = _date.today()
+
+        if sets:
+            sql = sa.text(f"UPDATE staff SET {', '.join(sets)} WHERE id=:sid")
+            c.execute(sql, params)
+
+        row = c.execute(sa.text("""
+            SELECT id, given_name, family_name, mobile, email,
+                   (end_date IS NULL) AS is_active
+            FROM staff WHERE id=:sid
+        """), {"sid": staff_id}).mappings().first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    row = dict(row)
+    row["role_label"] = None; row["role_code"] = None
+    return staff_to_dict(row)
+
+# JSON delete
+@admin.delete("/staff/{staff_id}")
+def admin_staff_delete_json(staff_id: str):
+    with engine.begin() as c:
+        row = c.execute(sa.text("DELETE FROM staff WHERE id=:sid RETURNING id"), {"sid": staff_id}).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    return {"ok": True}
+
+# ----------------------- Admin HTML flows (create/edit/etc.) -----------------------
 @admin.get("/staff/table", response_class=HTMLResponse)
-def admin_staff_table(
-    request: Request,
-    d: Optional[str] = None,
-    q: Optional[str] = None,
-    role: Optional[str] = None,
-    location: Optional[str] = None,
-    status: Optional[str] = None,
-):
+def admin_staff_table(request: Request, d: Optional[str] = None, q: Optional[str] = None,
+                      role: Optional[str] = None, location: Optional[str] = None,
+                      status: Optional[str] = None):
     if not _admin_only(request):
         return HTMLResponse("", status_code=401)
     try:
@@ -754,21 +755,21 @@ def admin_staff_table(
         day = _date.today()
 
     staff_rows = _fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
-    return templates.TemplateResponse("partials/staff_table_rows.html", {"request": request, "staff": staff_rows})
-
+    return templates.TemplateResponse("partials/staff_table_rows.html", {
+        "request": request, "staff": staff_rows
+    })
 
 @admin.get("/staff/new", response_class=HTMLResponse)
 def admin_staff_new(request: Request):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     with engine.connect() as c:
-        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY code")).mappings().all()
-        locs = c.execute(sa.text("SELECT code,name FROM location ORDER BY code")).mappings().all()
-    return templates.TemplateResponse(
-        "admin_staff_new.html",
-        {"request": request, "roles": roles, "locations": locs, "today": _date.today().isoformat(), "now": _date.today().isoformat()},
-    )
-
+        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
+        locs  = c.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
+    return templates.TemplateResponse("admin_staff_new.html", {
+        "request": request, "roles": roles, "locations": locs,
+        "today": _date.today().isoformat(), "now": _date.today().isoformat()
+    })
 
 @admin.post("/staff/create")
 def admin_staff_create(
@@ -794,43 +795,28 @@ def admin_staff_create(
         if existing:
             return RedirectResponse(f"/admin/staff/{existing.id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
-        staff_id = c.execute(
-            sa.text(
-                """
+        staff_id = c.execute(sa.text("""
             INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date)
             VALUES (:gn,:fn,:dn,:m,:e,:sd) RETURNING id
-        """
-            ),
-            {"gn": given_name, "fn": family_name, "dn": display_name, "m": mobile.strip(), "e": email, "sd": sd},
-        ).scalar_one()
+        """), {"gn": given_name, "fn": family_name, "dn": display_name, "m": mobile.strip(), "e": email, "sd": sd}).scalar_one()
 
         if primary_role_code and location_code:
             role = c.execute(sa.text("SELECT id FROM role WHERE code=:c"), {"c": primary_role_code}).first()
-            loc = c.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": location_code}).first()
+            loc  = c.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": location_code}).first()
             if role and loc:
-                c.execute(
-                    sa.text(
-                        """
+                c.execute(sa.text("""
                     INSERT INTO staff_role_assignment (staff_id, role_id, location_id, effective_start)
                     VALUES (:sid,:rid,:lid,:sd)
-                """
-                    ),
-                    {"sid": staff_id, "rid": role.id, "lid": loc.id, "sd": sd},
-                )
+                """), {"sid": staff_id, "rid": role.id, "lid": loc.id, "sd": sd})
 
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
-
 # -------- CSV export (place BEFORE any /staff/{staff_id} routes) --------
 @admin.get("/staff/export.csv")
-def admin_staff_export_csv(
-    request: Request,
-    d: Optional[str] = None,
-    q: Optional[str] = None,
-    role: Optional[str] = None,
-    location: Optional[str] = None,
-    status: Optional[str] = None,
-):
+def admin_staff_export_csv(request: Request,
+                           d: Optional[str] = None, q: Optional[str] = None,
+                           role: Optional[str] = None, location: Optional[str] = None,
+                           status: Optional[str] = None):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -844,42 +830,27 @@ def admin_staff_export_csv(
     output = io.StringIO()
     writer = csv.writer(output)
     headers = [
-        "id",
-        "given_name",
-        "family_name",
-        "display_name",
-        "mobile",
-        "email",
-        "start_date",
-        "end_date",
-        "is_active",
-        "role_code",
-        "role_label",
-        "location_code",
+        "id","given_name","family_name","display_name","mobile","email",
+        "start_date","end_date","is_active",
+        "role_code","role_label","location_code"
     ]
     writer.writerow(headers)
     for r in rows:
-        writer.writerow(
-            [
-                r.get("id"),
-                r.get("given_name"),
-                r.get("family_name"),
-                r.get("display_name"),
-                r.get("mobile"),
-                r.get("email"),
-                r.get("start_date"),
-                r.get("end_date"),
-                "TRUE" if r.get("is_active") else "FALSE",
-                r.get("role_code"),
-                r.get("role_label"),
-                r.get("location_code"),
-            ]
-        )
+        writer.writerow([
+            r.get("id"), r.get("given_name"), r.get("family_name"), r.get("display_name"),
+            r.get("mobile"), r.get("email"),
+            r.get("start_date"), r.get("end_date"),
+            "TRUE" if r.get("is_active") else "FALSE",
+            r.get("role_code"), r.get("role_label"), r.get("location_code"),
+        ])
     output.seek(0)
 
     filename = f"staff_{day.isoformat()}.csv"
-    return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
-
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 @admin.get("/staff/{staff_id}", response_class=HTMLResponse)
 def admin_staff_detail(request: Request, staff_id: str):
@@ -887,26 +858,20 @@ def admin_staff_detail(request: Request, staff_id: str):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
     with engine.connect() as c:
-        s = c.execute(
-            sa.text(
-                """
+        s = c.execute(sa.text("""
           SELECT id, given_name, family_name, display_name, mobile, email, start_date, end_date
           FROM staff WHERE id=:sid
-        """
-            ),
-            {"sid": staff_id},
-        ).mappings().first()
+        """), {"sid": staff_id}).mappings().first()
         if not s:
             return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
         assignments = _fetch_assignments_for(c, staff_id)
-        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY code")).mappings().all()
-        locs = c.execute(sa.text("SELECT code,name FROM location ORDER BY code")).mappings().all()
+        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
+        locs  = c.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
 
-    return templates.TemplateResponse(
-        "admin_staff_detail.html", {"request": request, "s": s, "assignments": assignments, "roles": roles, "locations": locs}
-    )
-
+    return templates.TemplateResponse("admin_staff_detail.html", {
+        "request": request, "s": s, "assignments": assignments, "roles": roles, "locations": locs
+    })
 
 @admin.get("/staff/{staff_id}/assignments/table", response_class=HTMLResponse)
 def admin_assignments_table(request: Request, staff_id: str):
@@ -914,26 +879,22 @@ def admin_assignments_table(request: Request, staff_id: str):
         return HTMLResponse("", status_code=401)
     with engine.connect() as c:
         assignments = _fetch_assignments_for(c, staff_id)
-    return templates.TemplateResponse("partials/assignments_table.html", {"request": request, "s_id": staff_id, "assignments": assignments})
-
+        roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
+        locations = c.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
+    return templates.TemplateResponse(
+        "partials/assignments_table.html",
+        {"request": request, "s_id": staff_id, "assignments": assignments,
+         "roles": roles, "locations": locations}
+    )
 
 @admin.post("/staff/{staff_id}/assign")
 def admin_add_assignment(
-    request: Request,
-    staff_id: str,
+    request: Request, staff_id: str,
     role_code: str = Form(...),
     location_code: Optional[str] = Form(None),
     effective_start: str = Form(...),
     effective_end: Optional[str] = Form(None),
 ):
-    """
-    Business rules:
-      - Staff can hold ONE assignment at a time (one role + one location).
-      - Adding a new assignment automatically ends any active assignment
-        at (new_start - 1 day). If the existing active assignment is identical,
-        we no-op.
-      - 'Priority' is ignored/removed.
-    """
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -945,8 +906,13 @@ def admin_add_assignment(
         if not role:
             if request.headers.get("hx-request"):
                 assignments = _fetch_assignments_for(c, staff_id)
+                roles = c.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
+                locations = c.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
                 return templates.TemplateResponse(
-                    "partials/assignments_table.html", {"request": request, "s_id": staff_id, "assignments": assignments}, status_code=400
+                    "partials/assignments_table.html",
+                    {"request": request, "s_id": staff_id, "assignments": assignments,
+                     "roles": roles, "locations": locations},
+                    status_code=400
                 )
             return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -957,9 +923,7 @@ def admin_add_assignment(
             loc = c.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": loc_code}).first()
             loc_id = loc.id if loc else None
 
-        current = c.execute(
-            sa.text(
-                """
+        current = c.execute(sa.text("""
             SELECT id, role_id, location_id, effective_start, effective_end
               FROM staff_role_assignment
              WHERE staff_id = :sid
@@ -967,86 +931,78 @@ def admin_add_assignment(
                AND (effective_end IS NULL OR effective_end >= :st)
              ORDER BY effective_start DESC
              LIMIT 1
-        """
-            ),
-            {"sid": staff_id, "st": start},
-        ).mappings().first()
+        """), {"sid": staff_id, "st": start}).mappings().first()
 
         if current and current.role_id == role.id and (
             (current.location_id is None and loc_id is None) or current.location_id == loc_id
         ):
             if end and (current.effective_end is None or current.effective_end != end):
-                c.execute(
-                    sa.text(
-                        """
+                c.execute(sa.text("""
                     UPDATE staff_role_assignment
                        SET effective_end = :en
                      WHERE id = :aid
-                """
-                    ),
-                    {"en": end, "aid": current.id},
-                )
+                """), {"en": end, "aid": current.id})
         else:
             if current:
                 new_prev_end = start - timedelta(days=1)
-                c.execute(
-                    sa.text(
-                        """
+                c.execute(sa.text("""
                     UPDATE staff_role_assignment
                        SET effective_end = :en
                      WHERE id = :aid
                        AND (effective_end IS NULL OR effective_end > :en)
-                """
-                    ),
-                    {"en": new_prev_end, "aid": current.id},
-                )
+                """), {"en": new_prev_end, "aid": current.id})
 
-            c.execute(
-                sa.text(
-                    """
+            c.execute(sa.text("""
                 INSERT INTO staff_role_assignment
                     (staff_id, role_id, location_id, effective_start, effective_end)
                 VALUES (:sid, :rid, :lid, :st, :en)
-            """
-                ),
-                {"sid": staff_id, "rid": role.id, "lid": loc_id, "st": start, "en": end},
-            )
+            """), {"sid": staff_id, "rid": role.id, "lid": loc_id, "st": start, "en": end})
 
     if request.headers.get("hx-request"):
         with engine.connect() as c2:
             assignments = _fetch_assignments_for(c2, staff_id)
-        return templates.TemplateResponse("partials/assignments_table.html", {"request": request, "s_id": staff_id, "assignments": assignments})
+            roles = c2.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
+            locations = c2.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
+        return templates.TemplateResponse(
+            "partials/assignments_table.html",
+            {"request": request, "s_id": staff_id, "assignments": assignments,
+             "roles": roles, "locations": locations}
+        )
 
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
-
 @admin.post("/staff/{staff_id}/assign/{assignment_id}/end")
-def admin_end_assignment(request: Request, staff_id: str, assignment_id: str, end_date: Optional[str] = Form(None)):
+def admin_end_assignment(
+    request: Request, staff_id: str, assignment_id: str,
+    end_date: Optional[str] = Form(None)
+):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
     d = _date.fromisoformat(end_date) if end_date else _date.today()
     with engine.begin() as c:
-        row = c.execute(
-            sa.text(
-                """
+        row = c.execute(sa.text("""
             SELECT effective_start
               FROM staff_role_assignment
              WHERE id=:aid AND staff_id=:sid
-        """
-            ),
-            {"aid": assignment_id, "sid": staff_id},
-        ).first()
+        """), {"aid": assignment_id, "sid": staff_id}).first()
         if row and d >= row.effective_start:
-            c.execute(sa.text("UPDATE staff_role_assignment SET effective_end=:d WHERE id=:aid"), {"d": d, "aid": assignment_id})
+            c.execute(sa.text("""
+                UPDATE staff_role_assignment SET effective_end=:d WHERE id=:aid
+            """), {"d": d, "aid": assignment_id})
 
     if request.headers.get("hx-request"):
         with engine.connect() as c2:
             assignments = _fetch_assignments_for(c2, staff_id)
-        return templates.TemplateResponse("partials/assignments_table.html", {"request": request, "s_id": staff_id, "assignments": assignments})
+            roles = c2.execute(sa.text("SELECT code,label FROM role ORDER BY label")).mappings().all()
+            locations = c2.execute(sa.text("SELECT code,name FROM location ORDER BY name")).mappings().all()
+        return templates.TemplateResponse(
+            "partials/assignments_table.html",
+            {"request": request, "s_id": staff_id, "assignments": assignments,
+             "roles": roles, "locations": locations}
+        )
 
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
-
 
 @admin.post("/staff/{staff_id}/end")
 def admin_end_staff(request: Request, staff_id: str, end_date: str = Form("")):
@@ -1057,21 +1013,15 @@ def admin_end_staff(request: Request, staff_id: str, end_date: str = Form("")):
 
     with engine.begin() as c:
         c.execute(sa.text("UPDATE staff SET end_date=:d WHERE id=:sid"), {"d": d, "sid": staff_id})
-        c.execute(
-            sa.text(
-                """
+        c.execute(sa.text("""
             UPDATE staff_role_assignment
                SET effective_end = :d
              WHERE staff_id = :sid
                AND effective_start <= :d
                AND (effective_end IS NULL OR :d < effective_end)
-        """
-            ),
-            {"sid": staff_id, "d": d},
-        )
+        """), {"sid": staff_id, "d": d})
 
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
-
 
 @admin.post("/staff/{staff_id}/reactivate")
 def admin_reactivate_staff(request: Request, staff_id: str):
@@ -1081,30 +1031,22 @@ def admin_reactivate_staff(request: Request, staff_id: str):
         c.execute(sa.text("UPDATE staff SET end_date=NULL WHERE id=:sid"), {"sid": staff_id})
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
-
 @admin.get("/staff/{staff_id}/edit", response_class=HTMLResponse)
 def admin_staff_edit(request: Request, staff_id: str):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     with engine.connect() as c:
-        s = c.execute(
-            sa.text(
-                """
+        s = c.execute(sa.text("""
           SELECT id, given_name, family_name, display_name, mobile, email, start_date, end_date
           FROM staff WHERE id=:sid
-        """
-            ),
-            {"sid": staff_id},
-        ).mappings().first()
+        """), {"sid": staff_id}).mappings().first()
         if not s:
             return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse("admin_staff_edit.html", {"request": request, "s": s})
 
-
 @admin.post("/staff/{staff_id}/update")
 def admin_staff_update(
-    request: Request,
-    staff_id: str,
+    request: Request, staff_id: str,
     given_name: str = Form(...),
     family_name: str = Form(...),
     mobile: str = Form(...),
@@ -1128,20 +1070,17 @@ def admin_staff_update(
 
     display_name = f"{given_name} {family_name}".strip()
     with engine.begin() as c:
-        dup = c.execute(
-            sa.text("SELECT id FROM staff WHERE mobile=:m AND id<>:sid LIMIT 1"),
-            {"m": mobile.strip(), "sid": staff_id},
-        ).first()
+        dup = c.execute(sa.text("""
+            SELECT id FROM staff WHERE mobile=:m AND id<>:sid LIMIT 1
+        """), {"m": mobile.strip(), "sid": staff_id}).first()
         if dup:
             return HTMLResponse(
                 "<p style='color:crimson'>That mobile is used by another staff member.</p>"
                 f"<p><a href='/admin/staff/{staff_id}/edit'>Back to edit</a></p>",
-                status_code=400,
+                status_code=400
             )
 
-        c.execute(
-            sa.text(
-                """
+        c.execute(sa.text("""
             UPDATE staff
                SET given_name=:gn,
                    family_name=:fn,
@@ -1151,22 +1090,12 @@ def admin_staff_update(
                    start_date=:sd,
                    end_date=:ed
              WHERE id=:sid
-        """
-            ),
-            {
-                "gn": given_name.strip(),
-                "fn": family_name.strip(),
-                "dn": display_name,
-                "m": mobile.strip(),
-                "e": (email or None),
-                "sd": sd,
-                "ed": ed,
-                "sid": staff_id,
-            },
-        )
+        """), {
+            "gn": given_name.strip(), "fn": family_name.strip(), "dn": display_name,
+            "m": mobile.strip(), "e": (email or None), "sd": sd, "ed": ed, "sid": staff_id
+        })
 
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
-
 
 # Register router
 app.include_router(admin)
