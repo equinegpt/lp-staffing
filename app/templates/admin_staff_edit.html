@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Edit staff{% endblock %}
+{% block content %}
+  <h1 class="page-title">Edit — {{ s.display_name }}</h1>
+  <form class="card form" method="post" action="/admin/staff/{{ s.id }}/update">
+    <div class="controls">
+      <div class="control"><label class="label">First name</label><input class="input" name="given_name" value="{{ s.given_name }}" required></div>
+      <div class="control"><label class="label">Last name</label><input class="input" name="family_name" value="{{ s.family_name }}" required></div>
+      <div class="control"><label class="label">Mobile</label><input class="input" name="mobile" value="{{ s.mobile }}" required></div>
+      <div class="control"><label class="label">Email</label><input class="input" name="email" value="{{ s.email or '' }}" type="email"></div>
+      <div class="control"><label class="label">Start date</label><input class="input" type="date" name="start_date" value="{{ s.start_date }}"></div>
+      <div class="control"><label class="label">End date</label><input class="input" type="date" name="end_date" value="{{ s.end_date or '' }}"></div>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-primary" type="submit">Save</button>
+      <a class="btn btn-secondary" href="/admin/staff/{{ s.id }}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}
