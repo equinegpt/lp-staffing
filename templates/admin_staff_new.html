@@ -1,49 +1,58 @@
 {% extends "base.html" %}
 {% block title %}Add staff{% endblock %}
+
 {% block content %}
-<h1>Add staff</h1>
+  <h1 class="page-title">Add staff</h1>
 
-<form method="post" action="/admin/staff/create" class="card">
-  <div class="grid two">
-    <div>
-      <label>Given name</label>
-      <input class="control" type="text" name="given_name" required>
-
-      <label>Family name</label>
-      <input class="control" type="text" name="family_name" required>
-
-      <label>Mobile</label>
-      <input class="control" type="tel" name="mobile" placeholder="+614… or 04…" required>
-
-      <label>Email <small>(optional)</small></label>
-      <input class="control" type="email" name="email">
+  <form method="post" action="/admin/staff/create" class="card block" style="max-width:760px;">
+    <div class="control" style="margin-bottom:10px;">
+      <label class="label" for="given_name">First name</label>
+      <input class="input" id="given_name" name="given_name" required />
     </div>
 
-    <div>
-      <label>Start date</label>
-      <input class="control" type="date" name="start_date" value="{{ today }}" required>
-
-      <label>Primary role</label>
-      <select class="control" name="primary_role_code" required>
-        <option value="">— select —</option>
-        {% for r in roles %}
-          <option value="{{ r.code }}">{{ r.label }} — {{ r.code }}</option>
-        {% endfor %}
-      </select>
-
-      <label>Location</label>
-      <select class="control" name="location_code" required>
-        <option value="">— select —</option>
-        {% for l in locations %}
-          <option value="{{ l.code }}">{{ l.name }}</option>
-        {% endfor %}
-      </select>
+    <div class="control" style="margin-bottom:10px;">
+      <label class="label" for="family_name">Last name</label>
+      <input class="input" id="family_name" name="family_name" required />
     </div>
-  </div>
 
-  <div style="margin-top:12px">
-    <button class="btn primary" type="submit">Create</button>
-    <a class="btn" href="/admin/staff">Cancel</a>
-  </div>
-</form>
+    <div class="control" style="margin-bottom:10px;">
+      <label class="label" for="mobile">Mobile</label>
+      <input class="input" id="mobile" name="mobile" placeholder="+614xx…" required />
+    </div>
+
+    <div class="control" style="margin-bottom:10px;">
+      <label class="label" for="email">Email <span class="helper">(optional)</span></label>
+      <input class="input" id="email" type="email" name="email" />
+    </div>
+
+    <div class="detail-grid" style="margin-bottom:10px;">
+      <div class="control">
+        <label class="label" for="start_date">Start date</label>
+        <input class="input" id="start_date" name="start_date" type="date" value="{{ today }}" required />
+      </div>
+
+      <div class="control">
+        <label class="label" for="primary_role_code">Primary role <span class="helper">(optional)</span></label>
+        <select class="input" id="primary_role_code" name="primary_role_code">
+          <option value="">— select —</option>
+          {% for r in roles %}
+            <option value="{{ r.code }}">{{ r.label }} — {{ r.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="control">
+        <label class="label" for="location_code">Location <span class="helper">(optional)</span></label>
+        <select class="input" id="location_code" name="location_code">
+          <option value="">— select —</option>
+          {% for l in locations %}
+            <option value="{{ l.code }}">{{ l.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit">Create</button>
+    <a class="btn btn-secondary" href="/admin/staff">Cancel</a>
+  </form>
 {% endblock %}

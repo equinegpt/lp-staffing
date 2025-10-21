@@ -1,20 +1,15 @@
-{# app/templates/partials/staff_table_rows.html #}
-{% for r in staff %}
+{% for s in staff %}
 <tr>
-  <td class="cell-name">
-    <a href="/admin/staff/{{ r.id }}">{{ r.display_name }}</a>
-  </td>
-  <td>{{ r.role_label or "—" }}</td>
-  <td>{{ r.location_code or "—" }}</td>
-  <td>{{ r.mobile|phone_au }}</td>
+  <td><a href="/admin/staff/{{ s.id }}">{{ s.display_name }}</a></td>
+  <td>{{ s.role_label or s.role_code or "—" }}</td>
+  <td>{{ s.location_code or "—" }}</td>
+  <td>{{ s.mobile|phone_au }}</td>
   <td>
-    {% if r.is_active %}
-      <span class="badge badge--ok">Active</span>
+    {% if s.is_active %}
+      <span class="pill pill--ok">Active</span>
     {% else %}
-      <span class="badge badge--bad">Inactive</span>
+      <span class="pill pill--bad">Inactive</span>
     {% endif %}
   </td>
 </tr>
-{% else %}
-<tr><td colspan="5" class="muted">No matching staff.</td></tr>
 {% endfor %}
