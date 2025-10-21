@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import ADMIN_WEB_SECRET, STATIC_DIR
 from app.core.db import bootstrap_schema
 from app.core.templates import templates, mount_static
+mount_static(app)
 
 # Import router *objects* (not modules)
 from app.routers.public import router as public_router

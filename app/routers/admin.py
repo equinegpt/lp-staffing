@@ -2,6 +2,7 @@ from __future__ import annotations
 import io, csv
 from datetime import date as _date, timedelta
 from typing import Optional, Any
+from jinja2 import TemplateNotFound
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Request, Form, status as http_status
@@ -118,26 +119,47 @@ def _select_staff_api_row(conn, staff_id: str):
          WHERE s.id = :sid
     """), {"sid": staff_id, "today": _date.today()}).mappings().first()
 
+# ---------------------------- robust login UI ------------------------------ #
+
+def _render_login(request: Request, error: str | None = None):
+    """Try multiple template names; never 500 if missing."""
+    ctx = {"request": request, "error": error}
+    for name in ("login.html", "login", "admin/login.html", "admin/login"):
+        try:
+            return templates.TemplateResponse(name, ctx)
+        except TemplateNotFound:
+            continue
+    # Last-resort minimal page so auth isn’t blocked by a missing template.
+    html = f"""
+    <!doctype html><meta charset="utf-8">
+    <title>Admin Login</title>
+    <form method="post" action="/admin/login" style="margin:4rem auto;max-width:420px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif">
+      <h1>Admin Login</h1>
+      {'<div style="color:#b91c1c;margin:.5rem 0;font-weight:600;">'+error+'</div>' if error else ''}
+      <label>Password<br><input name="password" type="password" style="width:100%;padding:.6rem;border:1px solid #ddd;border-radius:8px"></label>
+      <div style="margin-top:10px"><button type="submit" style="padding:.6rem .9rem;border-radius:8px;background:#0a4a3b;color:#fff;border:0;">Sign in</button></div>
+    </form>
+    """
+    return HTMLResponse(html)
+
 # -------------------------------- login ----------------------------------- #
 
 @router.get("/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return _render_login(request, None)
 
 @router.post("/login")
 def admin_login(request: Request, password: str = Form(...)):
     configured = (ADMIN_WEB_PASSWORD or "").strip()
     if not configured:
-        if password.strip():
-            request.session["admin"] = True
-            return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
-        return HTMLResponse("<h3>Login blocked: set ADMIN_WEB_PASSWORD in .env</h3>", status_code=500)
+        # Don’t 500; show the page with a clear message.
+        return _render_login(request, "Login blocked: set ADMIN_WEB_PASSWORD in .env")
 
     if password.strip() == configured:
         request.session["admin"] = True
         return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
-    return templates.TemplateResponse("login.html", {"request": request, "error": "Wrong password"}, status_code=401)
+    return _render_login(request, "Wrong password")
 
 @router.get("/logout")
 def admin_logout(request: Request):
