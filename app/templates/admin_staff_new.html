@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Add staff{% endblock %}
+{% block content %}
+  <h1 class="page-title">Add staff</h1>
+  <form class="card form" method="post" action="/admin/staff/create">
+    <div class="controls">
+      <div class="control">
+        <label class="label">First name</label>
+        <input class="input" name="given_name" required />
+      </div>
+      <div class="control">
+        <label class="label">Last name</label>
+        <input class="input" name="family_name" required />
+      </div>
+      <div class="control">
+        <label class="label">Mobile</label>
+        <input class="input" name="mobile" required />
+      </div>
+      <div class="control">
+        <label class="label">Email</label>
+        <input class="input" name="email" type="email" />
+      </div>
+      <div class="control">
+        <label class="label">Start date</label>
+        <input class="input" type="date" name="start_date" value="{{ today }}" />
+      </div>
+      <div class="control">
+        <label class="label">Role</label>
+        <select class="input" name="primary_role_code">
+          <option value="">(none)</option>
+          {% for r in roles %}<option value="{{ r.code }}">{{ r.label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="control">
+        <label class="label">Location</label>
+        <select class="input" name="location_code">
+          <option value="">(none)</option>
+          {% for l in locations %}<option value="{{ l.code }}">{{ l.name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="actions-row">
+      <button class="btn btn-primary" type="submit">Create</button>
+      <a class="btn btn-secondary" href="/admin/staff">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

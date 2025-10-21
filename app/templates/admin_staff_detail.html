@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Staff detail{% endblock %}
+{% block content %}
+  <h1 class="page-title">{{ s.display_name }}</h1>
+  <div class="card">
+    <p><strong>Mobile:</strong> {{ s.mobile|phone_au }}</p>
+    <p><strong>Email:</strong> {{ s.email or "—" }}</p>
+    <p><strong>Start:</strong> {{ s.start_date }}</p>
+    <p><strong>End:</strong> {{ s.end_date or "—" }}</p>
+  </div>
+
+  <div class="card">
+    <h2>Assignments</h2>
+    {% include "partials/assignments_table.html" %}
+  </div>
+
+  <div class="actions-row">
+    <form method="post" action="/admin/staff/{{ s.id }}/end" style="display:inline">
+      <input type="hidden" name="end_date" value="{{ (day or '') }}" />
+      <button class="btn btn-secondary" type="submit">End Employment</button>
+    </form>
+    <form method="post" action="/admin/staff/{{ s.id }}/reactivate" style="display:inline">
+      <button class="btn btn-primary" type="submit">Reactivate</button>
+    </form>
+  </div>
+{% endblock %}

@@ -1,0 +1,15 @@
+<table class="table" aria-label="Assignments">
+  <thead>
+    <tr><th>Role</th><th>Location</th><th>Start</th><th>End</th></tr>
+  </thead>
+  <tbody>
+  {% for a in assignments %}
+    <tr>
+      <td>{{ a.role_label or a.role_code }}</td>
+      <td>{{ a.location_code or "—" }}</td>
+      <td>{{ a.effective_start }}</td>
+      <td>{{ a.effective_end or "—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
