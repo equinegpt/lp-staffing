@@ -1,48 +1,58 @@
 # app/core/templates.py
+from __future__ import annotations
+from datetime import date as _date, datetime as _dt
+import re
 from pathlib import Path
-from datetime import date as _date
 from fastapi.templating import Jinja2Templates
 
-# Resolve /templates folder from repo root
-ROOT_DIR = Path(__file__).resolve().parents[2]
-TEMPLATES_DIR = ROOT_DIR / "templates"
-
+TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# --------------------- Jinja filters & helpers ---------------------
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        suf = "th"
+    else:
+        suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
 
-def _ordinal_suffix(n: int) -> str:
-    n = int(n)
-    if 11 <= (n % 100) <= 13:
-        return "th"
-    return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-
-def _ensure_date(v) -> _date:
-    if isinstance(v, _date):
-        return v
-    return _date.fromisoformat(str(v))
-
-def j_long_date(v) -> str:
-    """Render like: Tuesday October 21st"""
-    d = _ensure_date(v)
-    return f"{d.strftime('%A')} {d.strftime('%B')} {d.day}{_ordinal_suffix(d.day)}"
-
-def fmt_au_mobile(s: str | None) -> str:
+def date_long(value) -> str:
     """
-    Display AU mobile as: 0### ### ###
-    Accepts +61xxxxxxxxx, 61xxxxxxxxx or 04xxxxxxxx.
-    Falls back to raw if unknown.
+    Render 'Tuesday October 21st' from a date or ISO string 'YYYY-MM-DD'.
+    Year omitted by design (matches requested heading).
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        try:
+            d = _date.fromisoformat(value)
+        except Exception:
+            # try to parse datetimes too
+            try:
+                d = _dt.fromisoformat(value).date()
+            except Exception:
+                return str(value)
+    elif isinstance(value, _dt):
+        d = value.date()
+    elif isinstance(value, _date):
+        d = value
+    else:
+        return str(value)
+    return f"{d.strftime('%A')} {d.strftime('%B')} {_ordinal(d.day)}"
+
+def phone_au(s) -> str:
+    """
+    Display Australian mobiles as 0XXX XXX XXX and strip +61 leading code.
+    Leaves non-AU strings untouched.
     """
     if not s:
         return ""
-    digits = "".join(ch for ch in s if ch.isdigit())
-    if digits.startswith("61"):  # handles +61 / 61
-        digits = "0" + digits[2:]
-    if len(digits) == 10 and digits[0] == "0":
-        # 04xx xxx xxx
+    digits = re.sub(r"\D+", "", str(s))
+    if digits.startswith("61") and len(digits) >= 11:
+        digits = "0" + digits[2:]  # +61XXXXXXXXX -> 0XXXXXXXXX
+    if digits.startswith("0") and len(digits) == 10:
         return f"{digits[0:4]} {digits[4:7]} {digits[7:10]}"
-    return s
+    return s  # fallback (don’t mangle landlines etc.)
 
-# Register filters
-templates.env.filters["long_date"] = j_long_date
-templates.env.filters["au_mobile"] = fmt_au_mobile
+# register filters
+templates.env.filters["date_long"] = date_long
+templates.env.filters["phone_au"] = phone_au
