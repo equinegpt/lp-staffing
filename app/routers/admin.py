@@ -301,19 +301,19 @@ async def admin_staff_create_json(request: Request):
 
     display_name = f"{gn} {fn}".strip()
 
-    with engine.begin() as c:
-        dup = c.execute(sa.text("SELECT id FROM staff WHERE mobile=:m"), {"m": phone.strip()}).first()
-        if dup:
-            row = _select_staff_api_row(c, dup.id)
-            return staff_to_api(row)
+    is_active = data.get("is_active", data.get("isActive", True))
 
+    with engine.begin() as c:
+        ...
         staff_id = c.execute(sa.text("""
-            INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date, end_date)
-            VALUES (:gn,:fn,:dn,:m,:e,:sd,:ed)
+            INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date, end_date, status)
+            VALUES (:gn,:fn,:dn,:m,:e,:sd,:ed,:st)
             RETURNING id
         """), {
             "gn": gn, "fn": fn, "dn": display_name, "m": phone.strip(),
-            "e": email, "sd": start, "ed": (None if is_active else start)
+            "e": email, "sd": start,
+            "ed": (None if is_active else start),
+            "st": ("ACTIVE" if is_active else "INACTIVE"),
         }).scalar_one()
 
         # NEW: create current assignment if role/location supplied
@@ -358,9 +358,10 @@ async def admin_staff_update_json(staff_id: str, request: Request):
         # Handle active toggle
         if is_active is not None:
             if bool(is_active):
-                sets += ["end_date=NULL"]
+                sets += ["end_date=NULL", "status='ACTIVE'"]
             else:
-                params["ed"] = today; sets += ["end_date=:ed"]
+                params["ed"] = today
+                sets += ["end_date=:ed", "status='INACTIVE'"]
 
         if sets:
             c.execute(sa.text(f"UPDATE staff SET {', '.join(sets)} WHERE id=:sid"), params)
@@ -524,7 +525,8 @@ def admin_end_staff(request: Request, staff_id: str, end_date: str = Form("")):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     d = _date.fromisoformat(end_date) if end_date else _date.today()
     with engine.begin() as c:
-        c.execute(sa.text("UPDATE staff SET end_date=:d WHERE id=:sid"), {"d": d, "sid": staff_id})
+        c.execute(sa.text("UPDATE staff SET end_date=:d, status='INACTIVE' WHERE id=:sid"),
+                  {"d": d, "sid": staff_id})
         c.execute(sa.text("""
             UPDATE staff_role_assignment
                SET effective_end = :d
@@ -532,6 +534,7 @@ def admin_end_staff(request: Request, staff_id: str, end_date: str = Form("")):
                AND effective_start <= :d
                AND (effective_end IS NULL OR :d < effective_end)
         """), {"sid": staff_id, "d": d})
+
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 @router.post("/staff/{staff_id}/reactivate")
@@ -539,5 +542,6 @@ def admin_reactivate_staff(request: Request, staff_id: str):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
     with engine.begin() as c:
-        c.execute(sa.text("UPDATE staff SET end_date=NULL WHERE id=:sid"), {"sid": staff_id})
+        c.execute(sa.text("UPDATE staff SET end_date=NULL, status='ACTIVE' WHERE id=:sid"),
+                  {"sid": staff_id})
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
