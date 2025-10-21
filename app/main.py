@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import ADMIN_WEB_SECRET, STATIC_DIR
 from app.core.db import bootstrap_schema
+from app.core.templates import templates, mount_static
 
 # Import router *objects* (not modules)
 from app.routers.public import router as public_router
@@ -23,6 +24,8 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="LP Staffing API", lifespan=lifespan)
+app = FastAPI(title="Staff Registry", lifespan=lifespan)
+mount_static(app)  # ensure /static is mounted from repo root
 
 # --- Middleware ---
 app.add_middleware(
