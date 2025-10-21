@@ -1,5 +1,5 @@
 # app/core/templates.py
-from __future__ import annotations  # MUST be the first statement
+from __future__ import annotations  # must be first
 
 from pathlib import Path
 from datetime import date, datetime
@@ -9,63 +9,55 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
 
-# Where templates live
-ROOT_DIR = Path(__file__).resolve().parents[2]
-TEMPLATES_DIR = ROOT_DIR / "app" / "templates"
+# ----- resolve project root and pick template/static dirs safely -----
+ROOT = Path(__file__).resolve().parents[2]  # repo root (…/app/core/templates.py -> …/)
+TPL_CANDIDATES = [ROOT / "templates", ROOT / "app" / "templates"]
+STATIC_CANDIDATES = [ROOT / "static", ROOT / "app" / "static"]
+
+TEMPLATES_DIR = next((p for p in TPL_CANDIDATES if p.exists()), TPL_CANDIDATES[0])
+STATIC_DIR = next((p for p in STATIC_CANDIDATES if p.exists()), STATIC_CANDIDATES[0])
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-# -------------------- Jinja filters --------------------
+# ----- Jinja filters -----
 def _ordinal(n: int) -> str:
-    # 1st / 2nd / 3rd / 4th...
-    return "%d%s" % (n, "th" if 11 <= (n % 100) <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+    return f"{n}{'th' if 11 <= (n % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(n % 10, 'th')}"
 
-
-def date_long(v):
+def date_long(value):
     """'YYYY-MM-DD' or date -> 'Tuesday October 21st'"""
-    if isinstance(v, str):
+    if isinstance(value, str):
         try:
-            d = datetime.strptime(v, "%Y-%m-%d").date()
+            d = datetime.strptime(value, "%Y-%m-%d").date()
         except Exception:
-            return v
-    elif isinstance(v, date):
-        d = v
+            return value
+    elif isinstance(value, date):
+        d = value
     else:
-        return v
+        return value
     return f"{d.strftime('%A')} {d.strftime('%B')} {_ordinal(d.day)}"
-
 
 def phone_au(v: str):
     """+61xxxxxxxxx -> 04xx xxx xxx (leave other formats unchanged)"""
     if not v:
         return v
     digits = re.sub(r"\D+", "", v)
-    if digits.startswith("61"):  # convert +61 / 61 to 0-leading
+    if digits.startswith("61"):
         digits = "0" + digits[2:]
     if len(digits) == 10 and digits.startswith("0"):
         return f"{digits[0:4]} {digits[4:7]} {digits[7:10]}"
     return v
 
-
-# Register filters
 templates.env.filters["date_long"] = date_long
 templates.env.filters["phone_au"] = phone_au
 
 
-# -------------------- Static mount helper --------------------
+# ----- static mount helper (idempotent) -----
 def mount_static(app) -> None:
-    """
-    Mount /static using app/static. Safe to call once during startup.
-    main.py imports and calls this.
-    """
-    static_dir = ROOT_DIR / "app" / "static"
-    static_dir.mkdir(parents=True, exist_ok=True)
-    # If already mounted, Starlette will raise; so unmount first if needed.
-    # (Render restarts can reuse the ASGI app instance.)
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    # remove any previous /static mount to avoid duplicates on hot restarts
     try:
-        app.routes = [r for r in app.routes if not (getattr(r, "path", None) == "/static")]
+        app.routes = [r for r in app.routes if getattr(r, "path", None) != "/static"]
     except Exception:
-        # If routes not yet populated, ignore.
         pass
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
