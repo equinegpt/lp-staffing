@@ -1,54 +1,77 @@
+# app/core/templates.py
 from __future__ import annotations
 
-from pathlib import Path
-import datetime as dt
-import re
-
+from typing import Iterable
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi import FastAPI
 
-APP_DIR = Path(__file__).resolve().parents[1]
-TEMPLATES_DIR = (APP_DIR / "templates").resolve()
-STATIC_DIR = (APP_DIR / "static").resolve()
+from app.core.config import TEMPLATES_DIR, STATIC_DIR
 
+# Point Jinja at your repo's templates folder
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# ---- Jinja filters used across pages ----
-def _ordinal(n: int) -> str:
-    if 11 <= (n % 100) <= 13:
-        suf = "th"
-    else:
-        suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suf}"
 
-def date_long(value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
+def _try_names(names: Iterable[str], context: dict):
+    """
+    Try a list of template names (different paths/variants).
+    Return the first that exists; re-raise last error if none exists.
+    """
+    last_exc = None
+    for n in names:
+        if not n:
+            continue
         try:
-            value = dt.date.fromisoformat(value)
-        except Exception:
-            return value
-    if isinstance(value, dt.datetime):
-        value = value.date()
-    if not isinstance(value, dt.date):
-        return str(value)
-    return f"{value.strftime('%A')} {value.strftime('%B')} {_ordinal(value.day)}"
+            return templates.TemplateResponse(n, context)
+        except Exception as e:
+            last_exc = e
+    raise last_exc
 
-def phone_au(v) -> str:
-    if not v:
-        return ""
-    digits = re.sub(r"\D+", "", str(v))
-    if digits.startswith("61") and len(digits) >= 11:
-        digits = "0" + digits[2:]
-    if len(digits) == 10 and digits.startswith("0"):
-        return f"{digits[0:4]} {digits[4:7]} {digits[7:10]}"
-    return str(v)
 
-templates.env.filters["date_long"] = date_long
-templates.env.filters["phone_au"] = phone_au
+def render_any(primary: str, context: dict, *alts: str):
+    """
+    Be lenient about template names:
+    - Accept foldered ("admin/staff_list.html") or underscored ("admin_staff_list.html")
+    - Accept with or without ".html"
+    - Accept just the basename ("login") if you saved without an extension
+    """
+    candidates: list[str] = []
 
-def mount_static(app: FastAPI) -> None:
-    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    def add_variants(n: str):
+        if not n:
+            return
+        # exact
+        candidates.append(n)
+        # with/without .html
+        if n.endswith(".html"):
+            candidates.append(n[:-5])
+        else:
+            candidates.append(n + ".html")
+        # folder <-> underscore variants
+        if "/" in n:
+            parts = n.rstrip("/").split("/")
+            underscore = "_".join(parts)
+            candidates.append(underscore)
+            candidates.append(underscore + ".html")
+            # also try the basename alone
+            last = parts[-1]
+            candidates.append(last)
+            candidates.append(last + ".html")
+
+    add_variants(primary)
+    for a in alts:
+        add_variants(a)
+
+    # de-dup while preserving order
+    seen: set[str] = set()
+    ordered = [x for x in candidates if not (x in seen or seen.add(x))]
+
+    # Helpful log on Render so we can see what was tried
+    print("Template lookup chain:", " -> ".join(ordered[:12]), "...")
+
+    return _try_names(ordered, context)
+
+
+def mount_static(app):
+    """Mount /static from the configured STATIC_DIR."""
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    return app

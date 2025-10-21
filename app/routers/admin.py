@@ -1,20 +1,17 @@
 # app/routers/admin.py
 from __future__ import annotations
-
-import io
-import csv
-from datetime import date as _date
+import io, csv
+from datetime import date as _date, timedelta
 from typing import Optional, Any
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Request, Form, status as http_status
 from starlette.responses import RedirectResponse, HTMLResponse, StreamingResponse
-from jinja2 import TemplateNotFound
 
 from app.core.db import engine
 from app.core.constants import ROLE_WHERE, LOC_WHERE
 from app.core.config import ADMIN_WEB_PASSWORD
-from app.core.templates import templates
+from app.core.templates import render_any
 from app.services.staff import fetch_assignments_for, fetch_staff_for_list
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -60,7 +57,6 @@ def _upsert_current_assignment(conn, staff_id: str, role_code: str | None, loc_c
     role = conn.execute(sa.text("SELECT id FROM role WHERE code=:c"), {"c": role_code}).first()
     if not role:
         return
-
     loc_id = None
     loc_code = _normalize_loc_code(loc_code)
     if loc_code:
@@ -82,12 +78,9 @@ def _upsert_current_assignment(conn, staff_id: str, role_code: str | None, loc_c
 
     if current:
         conn.execute(
-            sa.text("""
-                UPDATE staff_role_assignment
-                   SET effective_end=:en
-                 WHERE id=:aid
-                   AND (effective_end IS NULL OR effective_end > :en)
-            """),
+            sa.text("""UPDATE staff_role_assignment
+                          SET effective_end=:en
+                        WHERE id=:aid AND (effective_end IS NULL OR effective_end > :en)"""),
             {"en": start, "aid": current.id}
         )
 
@@ -120,21 +113,12 @@ def _select_staff_api_row(conn, staff_id: str):
          WHERE s.id = :sid
     """), {"sid": staff_id, "today": _date.today()}).mappings().first()
 
-# Small helper to tolerate either file naming style
-def render_tpl(name: str, context: dict, alt: Optional[str] = None):
-    try:
-        return templates.TemplateResponse(name, context)
-    except TemplateNotFound:
-        if alt:
-            return templates.TemplateResponse(alt, context)
-        raise
-
 # -------------------------------- login ----------------------------------- #
 
 @router.get("/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
-    # Your repo uses "login" (no extension). Fall back to "login.html" if you rename later.
-    return render_tpl("login", {"request": request, "error": None}, alt="login.html")
+    # Try your saved "login" (no extension), then "admin/login", then ".html" variants
+    return render_any("login", {"request": request, "error": None}, "admin/login", "login.html")
 
 @router.post("/login")
 def admin_login(request: Request, password: str = Form(...)):
@@ -149,8 +133,7 @@ def admin_login(request: Request, password: str = Form(...)):
         request.session["admin"] = True
         return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
-    # stay on the same page, show inline error
-    return render_tpl("login", {"request": request, "error": "Wrong password"}, alt="login.html")
+    return render_any("login", {"request": request, "error": "Wrong password"}, "admin/login", "login.html")
 
 @router.get("/logout")
 def admin_logout(request: Request):
@@ -173,13 +156,13 @@ def admin_staff_list(
     location: Optional[str] = None,
     status: Optional[str] = None,
 ):
-    # JSON branch (used by iOS client)
+    # JSON branch: no login, used by iOS client
     if "application/json" in (request.headers.get("accept") or ""):
         day = _date.today()
         rows = fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
         return [staff_to_api(r) for r in rows]
 
-    # HTML branch (admin)
+    # HTML branch
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -193,10 +176,8 @@ def admin_staff_list(
         locs  = c.execute(sa.text(f"SELECT code,name  FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
 
     staff_rows = fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
-
-    # Prefer foldered template names; fall back to older underscore ones.
-    return render_tpl(
-        "admin/staff_list.html",
+    return render_any(
+        "admin/staff_list",
         {
             "request": request,
             "day": day.isoformat(),
@@ -208,7 +189,7 @@ def admin_staff_list(
             "status": (status or ""),
             "q": q or ""
         },
-        alt="admin_staff_list.html",
+        "admin_staff_list",
     )
 
 # ------------------------------- CSV export -------------------------------- #
@@ -251,56 +232,18 @@ def admin_staff_new(request: Request):
     with engine.connect() as c:
         roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
         locs  = c.execute(sa.text(f"SELECT code,name  FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
-    return render_tpl(
-        "admin/staff_new.html",
-        {"request": request, "roles": roles, "locations": locs, "today": _date.today().isoformat(), "now": _date.today().isoformat()},
-        alt="admin_staff_new.html",
+    return render_any(
+        "admin/staff_new",
+        {"request": request, "roles": roles, "locations": locs,
+         "today": _date.today().isoformat(), "now": _date.today().isoformat()},
+        "admin_staff_new",
     )
-
-@router.post("/staff/create")
-def admin_staff_create(
-    request: Request,
-    given_name: str = Form(...),
-    family_name: str = Form(...),
-    mobile: str = Form(...),
-    start_date: str = Form(...),
-    email: Optional[str] = Form(None),
-    primary_role_code: Optional[str] = Form(None),
-    location_code: Optional[str] = Form(None),
-):
-    if not _admin_only(request):
-        return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
-    try:
-        sd = _date.fromisoformat(start_date)
-    except Exception:
-        sd = _date.today()
-
-    display_name = f"{given_name} {family_name}".strip()
-    with engine.begin() as c:
-        existing = c.execute(sa.text("SELECT id FROM staff WHERE mobile = :m"), {"m": mobile.strip()}).first()
-        if existing:
-            return RedirectResponse(f"/admin/staff/{existing.id}", status_code=http_status.HTTP_303_SEE_OTHER)
-
-        staff_id = c.execute(sa.text("""
-            INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date)
-            VALUES (:gn,:fn,:dn,:m,:e,:sd) RETURNING id
-        """), {"gn": given_name, "fn": family_name, "dn": display_name, "m": mobile.strip(), "e": email, "sd": sd}).scalar_one()
-
-        if primary_role_code and location_code:
-            role = c.execute(sa.text("SELECT id FROM role WHERE code=:c"), {"c": primary_role_code}).first()
-            loc  = c.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": location_code}).first()
-            if role and loc:
-                c.execute(sa.text("""
-                    INSERT INTO staff_role_assignment (staff_id, role_id, location_id, effective_start)
-                    VALUES (:sid,:rid,:lid,:sd)
-                """), {"sid": staff_id, "rid": role.id, "lid": loc.id, "sd": sd})
-
-    return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
 # ------------------------- JSON CRUD for apps (no login) ------------------- #
 
 @router.post("/staff")
 async def admin_staff_create_json(request: Request):
+    # Only JSON callers
     if "application/json" not in (request.headers.get("accept") or "").lower():
         return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -317,7 +260,7 @@ async def admin_staff_create_json(request: Request):
         return HTMLResponse("first_name, last_name, phone required", status_code=400)
 
     start = _date.today()
-    end_for_insert = None if is_active else start
+    end_for_insert = None if is_active else start  # exclusive end: not active on 'start'
     display_name = f"{gn} {fn}".strip()
 
     with engine.begin() as c:
@@ -332,7 +275,8 @@ async def admin_staff_create_json(request: Request):
             RETURNING id
         """), {
             "gn": gn, "fn": fn, "dn": display_name, "m": phone.strip(),
-            "e": email, "sd": start, "ed": end_for_insert,
+            "e": email, "sd": start,
+            "ed": end_for_insert,
             "st": ("ACTIVE" if is_active else "INACTIVE"),
         }).scalar_one()
 
@@ -352,6 +296,7 @@ async def admin_staff_update_json(staff_id: str, request: Request):
     is_active = data.get("is_active") if "is_active" in data else data.get("isActive")
     role_code = data.get("role") or data.get("role_code")
     loc_code  = data.get("location") or data.get("location_code")
+
     today = _date.today()
 
     with engine.begin() as c:
@@ -361,15 +306,15 @@ async def admin_staff_update_json(staff_id: str, request: Request):
 
         sets, params = [], {"sid": staff_id}
         if gn is not None:
-            sets.append("given_name=:gn"); params["gn"] = gn
+            sets += ["given_name=:gn"]; params["gn"] = gn
         if fn is not None:
-            sets.append("family_name=:fn"); params["fn"] = fn
+            sets += ["family_name=:fn"]; params["fn"] = fn
         if gn is not None or fn is not None:
-            params["dn"] = f"{gn or ''} {fn or ''}".strip(); sets.append("display_name=:dn")
+            params["dn"] = f"{gn or ''} {fn or ''}".strip(); sets += ["display_name=:dn"]
         if phone is not None:
-            params["m"] = phone; sets.append("mobile=:m")
+            params["m"] = phone; sets += ["mobile=:m"]
         if email is not None:
-            params["e"] = email; sets.append("email=:e")
+            params["e"] = email; sets += ["email=:e"]
 
         if is_active is not None:
             if bool(is_active):
@@ -418,10 +363,10 @@ def admin_staff_table(request: Request, d: Optional[str] = None, q: Optional[str
     except Exception:
         day = _date.today()
     staff_rows = fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
-    return render_tpl(
-        "partials/staff_table_rows.html",
+    return render_any(
+        "partials/staff_table_rows",
         {"request": request, "staff": staff_rows},
-        alt="partials/staff_table_rows.html",  # same name; keep alt for symmetry
+        "partials/staff_table_rows.html",
     )
 
 @router.get("/staff/{staff_id}", response_class=HTMLResponse)
@@ -441,10 +386,10 @@ def admin_staff_detail(request: Request, staff_id: str):
         roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
         locs  = c.execute(sa.text(f"SELECT code,name  FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
 
-    return render_tpl(
-        "admin/staff_detail.html",
+    return render_any(
+        "admin/staff_detail",
         {"request": request, "s": s, "assignments": assignments, "roles": roles, "locations": locs},
-        alt="admin_staff_detail.html",
+        "admin_staff_detail",
     )
 
 @router.get("/staff/{staff_id}/edit", response_class=HTMLResponse)
@@ -458,11 +403,7 @@ def admin_staff_edit(request: Request, staff_id: str):
         """), {"sid": staff_id}).mappings().first()
         if not s:
             return RedirectResponse("/admin/staff", status_code=http_status.HTTP_303_SEE_OTHER)
-    return render_tpl(
-        "admin/staff_edit.html",
-        {"request": request, "s": s},
-        alt="admin_staff_edit.html",
-    )
+    return render_any("admin/staff_edit", {"request": request, "s": s}, "admin_staff_edit")
 
 # ------------------------------- assignments ------------------------------- #
 
@@ -474,10 +415,10 @@ def admin_assignments_table(request: Request, staff_id: str):
         assignments = fetch_assignments_for(c, staff_id)
         roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
         locations = c.execute(sa.text(f"SELECT code,name FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
-    return render_tpl(
-        "partials/assignments_table.html",
+    return render_any(
+        "partials/assignments_table",
         {"request": request, "s_id": staff_id, "assignments": assignments, "roles": roles, "locations": locations},
-        alt="partials/assignments_table.html",
+        "partials/assignments_table.html",
     )
 
 @router.post("/staff/{staff_id}/assign")
@@ -501,10 +442,10 @@ def admin_add_assignment(
                 assignments = fetch_assignments_for(c, staff_id)
                 roles = c.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
                 locations = c.execute(sa.text(f"SELECT code,name FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
-                return render_tpl(
-                    "partials/assignments_table.html",
+                return render_any(
+                    "partials/assignments_table",
                     {"request": request, "s_id": staff_id, "assignments": assignments, "roles": roles, "locations": locations},
-                    alt="partials/assignments_table.html",
+                    "partials/assignments_table.html",
                 )
             return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
 
@@ -539,10 +480,8 @@ def admin_add_assignment(
                 c.execute(sa.text("""
                     UPDATE staff_role_assignment
                        SET effective_end = :en
-                     WHERE id = :aid
-                       AND (effective_end IS NULL OR effective_end > :en)
+                     WHERE id = :aid AND (effective_end IS NULL OR effective_end > :en)
                 """), {"en": start, "aid": current.id})
-
             c.execute(sa.text("""
                 INSERT INTO staff_role_assignment
                     (staff_id, role_id, location_id, effective_start, effective_end)
@@ -554,10 +493,10 @@ def admin_add_assignment(
             assignments = fetch_assignments_for(c2, staff_id)
             roles = c2.execute(sa.text(f"SELECT code,label FROM role WHERE {ROLE_WHERE} ORDER BY label")).mappings().all()
             locations = c2.execute(sa.text(f"SELECT code,name FROM location WHERE {LOC_WHERE} ORDER BY name")).mappings().all()
-        return render_tpl(
-            "partials/assignments_table.html",
+        return render_any(
+            "partials/assignments_table",
             {"request": request, "s_id": staff_id, "assignments": assignments, "roles": roles, "locations": locations},
-            alt="partials/assignments_table.html",
+            "partials/assignments_table.html",
         )
 
     return RedirectResponse(f"/admin/staff/{staff_id}", status_code=http_status.HTTP_303_SEE_OTHER)
@@ -566,6 +505,7 @@ def admin_add_assignment(
 def admin_end_staff(request: Request, staff_id: str, end_date: str = Form("")):
     if not _admin_only(request):
         return RedirectResponse("/admin/login", status_code=http_status.HTTP_303_SEE_OTHER)
+
     d = _date.fromisoformat(end_date) if end_date else _date.today()
     with engine.begin() as c:
         c.execute(sa.text("UPDATE staff SET end_date=:d, status='INACTIVE' WHERE id=:sid"),
