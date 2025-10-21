@@ -1,97 +1,46 @@
-<!-- app/templates/admin_staff_detail.html -->
 {% extends "base.html" %}
-{% block title %}{{ s.display_name }}{% endblock %}
-{% block body %}
+{% block title %}Staff{% endblock %}
+{% block content %}
 
-  <div style="display:flex; align-items:center; gap:14px;">
-    <h1 style="margin:0;">{{ s.display_name }}</h1>
-    {% if s.end_date %}
-      <span class="badge badge-danger">Inactive</span>
-    {% else %}
-      <span class="badge badge-success">Active</span>
-    {% endif %}
-    <a class="btn small" href="/admin/staff/{{ s.id }}/edit" style="margin-left:auto;">Edit</a>
+<h1>
+  {{ s.display_name }}
+  {% if s.end_date %}
+    <span class="badge badge--bad">Inactive</span>
+  {% else %}
+    <span class="badge badge--ok">Active</span>
+  {% endif %}
+  <a class="btn small" style="float:right" href="/admin/staff/{{ s.id }}/edit">Edit</a>
+</h1>
+
+<div class="card">
+  <div class="grid two">
+    <div>
+      <div class="kv"><div class="k">Mobile</div><div class="v">{{ s.mobile|phone_au }}</div></div>
+      <div class="kv"><div class="k">Email</div><div class="v">{{ s.email or "—" }}</div></div>
+    </div>
+    <div>
+      <div class="kv"><div class="k">Start</div><div class="v">{{ s.start_date }}</div></div>
+      <div class="kv"><div class="k">End</div><div class="v">{{ s.end_date or "—" }}</div></div>
+    </div>
   </div>
 
-  <section class="card" style="margin-top:14px;">
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
-      <div>
-        <div style="margin-bottom:12px;"><strong>Mobile</strong><br>{{ s.mobile|phone_au }}</div>
-        <div><strong>Email</strong><br>{{ s.email or '—' }}</div>
-      </div>
-      <div>
-        <div style="margin-bottom:12px;"><strong>Start</strong><br>{{ s.start_date }}</div>
-        <div style="display:flex; gap:10px; align-items:center;">
-          <div class="grow">
-            <strong>End</strong><br>
-            <input id="end-d" name="end_date" type="date" />
-          </div>
-          <button class="btn warn"
-                  hx-post="/admin/staff/{{ s.id }}/end"
-                  hx-include="#end-d"
-                  hx-swap="none">
-            End employment
-          </button>
-          <button class="btn"
-                  hx-post="/admin/staff/{{ s.id }}/reactivate"
-                  hx-swap="none">
-            Reactivate
-          </button>
-        </div>
-        <div style="font-size:12px; opacity:.7; margin-top:6px;">
-          Choose an end date then click “End employment”.
-        </div>
-      </div>
-    </div>
-  </section>
+  <hr>
 
-  <!-- Assignments -->
-  <section class="card" style="margin-top:18px;">
-    <h2 style="margin:0 0 10px;">Assignments</h2>
+  <form method="post" action="/admin/staff/{{ s.id }}/end" class="inline">
+    <label for="end_date">End</label>
+    <input id="end_date" name="end_date" type="date" />
+    <button class="btn danger" type="submit">End employment</button>
+    <small class="muted">Choose the end date then click “End employment”.</small>
+  </form>
 
-    <!-- tidy toolbar -->
-    <form class="assign-toolbar"
-          hx-post="/admin/staff/{{ s.id }}/assign"
-          hx-target="#assignments"
-          hx-swap="innerHTML">
-      <div class="grow">
-        <label>Role</label>
-        <select name="role_code" required>
-          <option value="">— select —</option>
-          {% for r in roles %}
-            <option value="{{ r.code }}">{{ r.label }} — {{ r.code }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="grow">
-        <label>Location (required)</label>
-        <select name="location_code" required>
-          <option value="">— select —</option>
-          {% for l in locations %}
-            <option value="{{ l.code }}">{{ l.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Start</label>
-        <input type="date" name="effective_start" required />
-      </div>
-      <div>
-        <label>End (optional)</label>
-        <input type="date" name="effective_end" />
-      </div>
-      <div class="actions">
-        <button class="btn primary" type="submit">Add/Update</button>
-      </div>
-    </form>
+  <form method="post" action="/admin/staff/{{ s.id }}/reactivate" class="inline" style="margin-left:1rem">
+    <button class="btn" type="submit">Reactivate</button>
+  </form>
+</div>
 
-    <div id="assignments"
-         hx-get="/admin/staff/{{ s.id }}/assignments/table"
-         hx-trigger="load"
-         hx-swap="innerHTML"
-         style="margin-top:14px;">
-      Loading…
-    </div>
-  </section>
+<h2>Assignments</h2>
+<div id="assignments">
+  {% include "partials/assignments_table.html" %}
+</div>
 
 {% endblock %}

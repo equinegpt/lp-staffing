@@ -1,61 +1,49 @@
 {% extends "base.html" %}
-{% block title %}Add staff • Staff Admin{% endblock %}
+{% block title %}Add staff{% endblock %}
 {% block content %}
-  <h1>Add staff</h1>
+<h1>Add staff</h1>
 
-  <form class="form" action="/admin/staff/create" method="post">
-    <div class="card">
-      <div class="field">
-        <label class="label" for="given_name">Given name</label>
-        <input class="input" id="given_name" name="given_name" required />
-      </div>
+<form method="post" action="/admin/staff/create" class="card">
+  <div class="grid two">
+    <div>
+      <label>Given name</label>
+      <input class="control" type="text" name="given_name" required>
 
-      <div class="field">
-        <label class="label" for="family_name">Family name</label>
-        <input class="input" id="family_name" name="family_name" required />
-      </div>
+      <label>Family name</label>
+      <input class="control" type="text" name="family_name" required>
 
-      <div class="field">
-        <label class="label" for="mobile">Mobile</label>
-        <input class="input" id="mobile" name="mobile" type="tel" placeholder="+61…" required />
-        <div class="hint">Use international format if possible.</div>
-      </div>
+      <label>Mobile</label>
+      <input class="control" type="tel" name="mobile" placeholder="+614… or 04…" required>
 
-      <div class="field">
-        <label class="label" for="email">Email <span class="hint">(optional)</span></label>
-        <input class="input" id="email" name="email" type="email" />
-      </div>
-
-      <div class="field">
-        <label class="label" for="start_date">Start date</label>
-        <input class="input" id="start_date" name="start_date" type="date" value="{{ today }}" required />
-      </div>
+      <label>Email <small>(optional)</small></label>
+      <input class="control" type="email" name="email">
     </div>
 
-    <div class="card" style="margin-top:14px">
-      <h3 style="margin:0 0 8px 0;">First assignment</h3>
-      <div class="hint">People can only hold one role/location at a time. Adding a new assignment later will end the current one.</div>
+    <div>
+      <label>Start date</label>
+      <input class="control" type="date" name="start_date" value="{{ today }}" required>
 
-      <div class="field">
-        <label class="label" for="primary_role_code">Role</label>
-        <select class="select" id="primary_role_code" name="primary_role_code" required>
-          <option value="">— select —</option>
-          {% for r in roles %}<option value="{{ r.code }}">{{ r.label }}</option>{% endfor %}
-        </select>
-      </div>
+      <label>Primary role</label>
+      <select class="control" name="primary_role_code" required>
+        <option value="">— select —</option>
+        {% for r in roles %}
+          <option value="{{ r.code }}">{{ r.label }} — {{ r.code }}</option>
+        {% endfor %}
+      </select>
 
-      <div class="field">
-        <label class="label" for="location_code">Location</label>
-        <select class="select" id="location_code" name="location_code" required>
-          <option value="">— select —</option>
-          {% for l in locations %}<option value="{{ l.code }}">{{ l.name }}</option>{% endfor %}
-        </select>
-      </div>
+      <label>Location</label>
+      <select class="control" name="location_code" required>
+        <option value="">— select —</option>
+        {% for l in locations %}
+          <option value="{{ l.code }}">{{ l.name }}</option>
+        {% endfor %}
+      </select>
     </div>
+  </div>
 
-    <div class="stack" style="margin-top:14px">
-      <button class="btn btn-primary" type="submit">Create staff</button>
-      <a class="btn btn-secondary" href="/admin/staff">Cancel</a>
-    </div>
-  </form>
+  <div style="margin-top:12px">
+    <button class="btn primary" type="submit">Create</button>
+    <a class="btn" href="/admin/staff">Cancel</a>
+  </div>
+</form>
 {% endblock %}
