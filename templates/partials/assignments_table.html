@@ -1,75 +1,31 @@
-{# app/templates/partials/assignments_table.html #}
-<div class="card">
-  <table class="table">
+{% if assignments|length == 0 %}
+  <div class="empty">No assignments yet.</div>
+{% else %}
+  <table class="table" aria-label="Assignments">
     <thead>
       <tr>
-        <th>Role</th><th>Location</th><th>Start</th><th>End</th><th>Actions</th>
+        <th>Role</th>
+        <th>Location</th>
+        <th>Start</th>
+        <th>End</th>
+        <th style="width:200px;">Actions</th>
       </tr>
     </thead>
     <tbody>
-    {% for a in assignments %}
-      <tr>
-        <td>{{ a.role_label }} ({{ a.role_code }})</td>
-        <td>{{ a.location_code }}</td>
-        <td>{{ a.effective_start }}</td>
-        <td>{{ a.effective_end or "—" }}</td>
-        <td>
-          <form
-            hx-post="/admin/staff/{{ s_id }}/assign/{{ a.id }}/end"
-            hx-target="#assignments"
-            hx-swap="outerHTML"
-            class="inline"
-          >
-            <input type="date" name="end_date" class="control" />
-            <button class="btn small" type="submit">End</button>
-          </form>
-        </td>
-      </tr>
-    {% else %}
-      <tr><td colspan="5" class="muted">No assignments yet.</td></tr>
-    {% endfor %}
+      {% for a in assignments %}
+        <tr>
+          <td>{{ a.role_label }} ({{ a.role_code }})</td>
+          <td>{{ a.location_code }}</td>
+          <td>{{ a.effective_start }}</td>
+          <td>{{ a.effective_end or "—" }}</td>
+          <td>
+            <form class="assign-end" method="post" action="/admin/staff/{{ s.id }}/assign/{{ a.id }}/end">
+              <input class="input" type="date" name="end_date" />
+              <button class="btn btn-secondary" type="submit">End</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
     </tbody>
   </table>
-
-  <hr>
-
-  <form
-    hx-post="/admin/staff/{{ s_id }}/assign"
-    hx-target="#assignments"
-    hx-swap="outerHTML"
-  >
-    <div class="grid four">
-      <div>
-        <label>Role</label>
-        <select name="role_code" class="control" required>
-          <option value="">— select —</option>
-          {% for r in roles %}
-            <option value="{{ r.code }}">{{ r.label }} — {{ r.code }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Location <small>(required)</small></label>
-        <select name="location_code" class="control" required>
-          <option value="">— select —</option>
-          {% for l in locations %}
-            <option value="{{ l.code }}">{{ l.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Start</label>
-        <input type="date" name="effective_start" class="control" required />
-      </div>
-      <div>
-        <label>End <small>(optional)</small></label>
-        <input type="date" name="effective_end" class="control" />
-      </div>
-    </div>
-
-    <div style="margin-top:12px">
-      <button class="btn primary" type="submit">Add assignment</button>
-      <small class="muted">Only one active role/location at a time — adding a new one ends the current one.</small>
-    </div>
-  </form>
-</div>
+{% endif %}

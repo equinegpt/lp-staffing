@@ -1,44 +1,35 @@
-<!-- app/templates/base.html -->
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}Staff Admin{% endblock %}</title>
-  <link rel="stylesheet" href="/static/admin.css">
-  <!-- htmx for partial refreshes (assignments add/end) -->
-  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
-  <style>
-    /* Small additions to keep fonts consistent across date inputs */
-    input[type="date"] { font: inherit; }
-    .filters { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)) 120px; gap: 16px; align-items: end; }
-    .filters .control { width: 100%; }
-    .btn { white-space: nowrap; }
-  </style>
-</head>
-<body class="lp">
-  <header class="topbar">
-    <div class="topbar-inner">
-      <div class="left">
-        <span class="dot"></span> <strong>Staff Admin</strong>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>{% block title %}Staff Admin{% endblock %}</title>
+    <link rel="icon" href="/static/favicon.ico" />
+    <link rel="stylesheet" href="/static/admin.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <div class="brand-left">
+          <span class="dot"></span>
+          <span>Staff Admin</span>
+        </div>
+        <div class="brand-center">
+          <img src="/static/lindsay-park-logo.png" alt="Lindsay Park" />
+        </div>
+        <nav class="nav-right">
+          <a href="/admin/staff">Staff</a>
+          <a href="/admin/staff/new">Add</a>
+          <a href="/admin/logout">Logout</a>
+        </nav>
       </div>
-      <div class="logo">
-        <img src="/static/lindsay-park-logo.png" alt="Lindsay Park" />
-      </div>
-      <nav class="right">
-        <a href="/admin/staff">Staff</a>
-        <a href="/admin/staff/new">Add</a>
-        <a href="/admin/logout">Logout</a>
-      </nav>
-    </div>
-  </header>
+    </header>
 
-  <main class="container">
-    {% block content %}{% endblock %}
-  </main>
-
-  <footer class="footer">
-    Built for Lindsay Park
-  </footer>
-</body>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
 </html>

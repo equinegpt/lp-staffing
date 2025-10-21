@@ -1,46 +1,94 @@
 {% extends "base.html" %}
 {% block title %}Staff{% endblock %}
+
 {% block content %}
-
-<h1>
-  {{ s.display_name }}
-  {% if s.end_date %}
-    <span class="badge badge--bad">Inactive</span>
-  {% else %}
-    <span class="badge badge--ok">Active</span>
-  {% endif %}
-  <a class="btn small" style="float:right" href="/admin/staff/{{ s.id }}/edit">Edit</a>
-</h1>
-
-<div class="card">
-  <div class="grid two">
-    <div>
-      <div class="kv"><div class="k">Mobile</div><div class="v">{{ s.mobile|phone_au }}</div></div>
-      <div class="kv"><div class="k">Email</div><div class="v">{{ s.email or "—" }}</div></div>
-    </div>
-    <div>
-      <div class="kv"><div class="k">Start</div><div class="v">{{ s.start_date }}</div></div>
-      <div class="kv"><div class="k">End</div><div class="v">{{ s.end_date or "—" }}</div></div>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+    <h1 class="page-title" style="margin:0">{{ s.display_name }}</h1>
+    {% if s.end_date %}
+      <span class="pill pill--bad">Inactive</span>
+    {% else %}
+      <span class="pill pill--ok">Active</span>
+    {% endif %}
+    <div style="margin-left:auto">
+      <a class="btn btn-secondary" href="/admin/staff/{{ s.id }}/edit">Edit</a>
     </div>
   </div>
 
-  <hr>
+  <div class="detail-grid">
+    <section class="card block">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>
+          <div class="label">Mobile</div>
+          <div>{{ s.mobile|phone_au }}</div>
+          <div class="label" style="margin-top:12px;">Email</div>
+          <div>{{ s.email or "—" }}</div>
+        </div>
+        <div>
+          <div class="label">Start</div>
+          <div>{{ s.start_date }}</div>
 
-  <form method="post" action="/admin/staff/{{ s.id }}/end" class="inline">
-    <label for="end_date">End</label>
-    <input id="end_date" name="end_date" type="date" />
-    <button class="btn danger" type="submit">End employment</button>
-    <small class="muted">Choose the end date then click “End employment”.</small>
-  </form>
+          <div class="label" style="margin-top:12px;">End</div>
+          <div>{{ s.end_date or "—" }}</div>
+        </div>
+      </div>
 
-  <form method="post" action="/admin/staff/{{ s.id }}/reactivate" class="inline" style="margin-left:1rem">
-    <button class="btn" type="submit">Reactivate</button>
-  </form>
-</div>
+      <hr style="border:none;border-top:1px solid #eef2f7;margin:16px 0;" />
 
-<h2>Assignments</h2>
-<div id="assignments">
-  {% include "partials/assignments_table.html" %}
-</div>
+      <form method="post" action="/admin/staff/{{ s.id }}/end" class="inline-actions">
+        <div class="control" style="min-width:200px;">
+          <label class="label" for="end_date">Choose end date</label>
+          <input class="input" id="end_date" name="end_date" type="date" />
+        </div>
+        <button class="btn btn-danger" type="submit">End employment</button>
 
+        <div class="helper">Choose the end date then click “End employment”.</div>
+
+        <a class="btn btn-secondary" style="margin-left:auto" href="/admin/staff/{{ s.id }}/reactivate">Reactivate</a>
+      </form>
+    </section>
+
+    <section class="card block">
+      <h2 style="margin:0 0 10px 0;">Assignments</h2>
+
+      {% include "partials/assignments_table.html" %}
+      <hr style="border:none;border-top:1px solid #eef2f7;margin:16px 0;" />
+
+      <form method="post" action="/admin/staff/{{ s.id }}/assign">
+        <div class="control" style="margin-bottom:8px;">
+          <label class="label" for="role_code">Role</label>
+          <select class="input" id="role_code" name="role_code" required>
+            <option value="">— select —</option>
+            {% for r in roles %}
+              <option value="{{ r.code }}">{{ r.label }} — {{ r.code }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="control" style="margin-bottom:8px;">
+          <label class="label" for="location_code">Location <span class="helper">(required)</span></label>
+          <select class="input" id="location_code" name="location_code" required>
+            <option value="">— select —</option>
+            {% for l in locations %}
+              <option value="{{ l.code }}">{{ l.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="control" style="margin-bottom:8px;">
+          <label class="label" for="effective_start">Start</label>
+          <input class="input" id="effective_start" name="effective_start" type="date" required />
+        </div>
+
+        <div class="control" style="margin-bottom:12px;">
+          <label class="label" for="effective_end">End <span class="helper">(optional)</span></label>
+          <input class="input" id="effective_end" name="effective_end" type="date" />
+        </div>
+
+        <button class="btn btn-primary" type="submit">Add assignment</button>
+        <div class="helper" style="margin-top:8px;">
+          Only one active role/location at a time — adding a new one will end the current one.
+        </div>
+      </form>
+    </section>
+  </div>
 {% endblock %}

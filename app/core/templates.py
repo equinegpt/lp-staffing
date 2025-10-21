@@ -1,63 +1,63 @@
-# app/core/templates.py
-from __future__ import annotations  # must be first
+from __future__ import annotations
 
 from pathlib import Path
-from datetime import date, datetime
+import datetime as dt
 import re
 
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI
 
-
-# ----- resolve project root and pick template/static dirs safely -----
-ROOT = Path(__file__).resolve().parents[2]  # repo root (…/app/core/templates.py -> …/)
-TPL_CANDIDATES = [ROOT / "templates", ROOT / "app" / "templates"]
-STATIC_CANDIDATES = [ROOT / "static", ROOT / "app" / "static"]
-
-TEMPLATES_DIR = next((p for p in TPL_CANDIDATES if p.exists()), TPL_CANDIDATES[0])
-STATIC_DIR = next((p for p in STATIC_CANDIDATES if p.exists()), STATIC_CANDIDATES[0])
+# Paths
+APP_DIR = Path(__file__).resolve().parents[1]
+TEMPLATES_DIR = APP_DIR / "templates"
+STATIC_DIR = APP_DIR / "static"
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+# ---------- Jinja filters ----------
 
-# ----- Jinja filters -----
 def _ordinal(n: int) -> str:
-    return f"{n}{'th' if 11 <= (n % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(n % 10, 'th')}"
+    # 1st, 2nd, 3rd, 4th … with 11th/12th/13th exception
+    if 11 <= (n % 100) <= 13:
+        suf = "th"
+    else:
+        suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
 
-def date_long(value):
-    """'YYYY-MM-DD' or date -> 'Tuesday October 21st'"""
+def date_long(value) -> str:
+    """Show 'Tuesday October 21st' given a date or ISO string."""
+    if value is None:
+        return ""
     if isinstance(value, str):
         try:
-            d = datetime.strptime(value, "%Y-%m-%d").date()
+            value = dt.date.fromisoformat(value)
         except Exception:
             return value
-    elif isinstance(value, date):
-        d = value
-    else:
-        return value
-    return f"{d.strftime('%A')} {d.strftime('%B')} {_ordinal(d.day)}"
+    if isinstance(value, (dt.datetime, )):
+        value = value.date()
+    if not isinstance(value, dt.date):
+        return str(value)
+    return f"{value.strftime('%A')} {value.strftime('%B')} {_ordinal(value.day)}"
 
-def phone_au(v: str):
-    """+61xxxxxxxxx -> 04xx xxx xxx (leave other formats unchanged)"""
+def phone_au(v) -> str:
+    """Format AU mobiles:
+       '+61458…' or '61458…' -> '0458 589 404'; keep other inputs unchanged.
+    """
     if not v:
-        return v
-    digits = re.sub(r"\D+", "", v)
-    if digits.startswith("61"):
+        return ""
+    digits = re.sub(r"\D+", "", str(v))
+    if digits.startswith("61") and len(digits) >= 11:
         digits = "0" + digits[2:]
+    # 04xx xxx xxx
     if len(digits) == 10 and digits.startswith("0"):
         return f"{digits[0:4]} {digits[4:7]} {digits[7:10]}"
-    return v
+    return str(v)
 
 templates.env.filters["date_long"] = date_long
 templates.env.filters["phone_au"] = phone_au
 
-
-# ----- static mount helper (idempotent) -----
-def mount_static(app) -> None:
+# ---------- Static mount helper ----------
+def mount_static(app: FastAPI) -> None:
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
-    # remove any previous /static mount to avoid duplicates on hot restarts
-    try:
-        app.routes = [r for r in app.routes if getattr(r, "path", None) != "/static"]
-    except Exception:
-        pass
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
