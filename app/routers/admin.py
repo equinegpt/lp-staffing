@@ -98,7 +98,7 @@ def _select_staff_api_row(conn, staff_id: str):
     return conn.execute(sa.text("""
         SELECT s.id,
                s.given_name, s.family_name, s.mobile, s.email,
-               (s.end_date IS NULL OR s.end_date > :today) AS is_active,
+                (s.end_date IS NULL) AS is_active,
                r.code  AS role_code,
                r.label AS role_label,
                l.code  AS location_code,
