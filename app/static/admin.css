@@ -1,28 +1,35 @@
-:root{ --brand:#0b3d2e; --accent:#1e7a5b; --bg:#f6f8f7; --text:#132621; }
-*{ box-sizing:border-box; }
-body.page{ margin:0; font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; color:var(--text); background:var(--bg); }
-.container{ max-width:1000px; margin:0 auto; padding:16px; }
-.container.narrow{ max-width:480px; }
-.topbar{ background:var(--brand); color:#fff; }
-.topbar .container{ display:flex; align-items:center; gap:16px; }
-.brand{ color:#fff; text-decoration:none; font-weight:700; }
-.nav a{ color:#d7efe7; text-decoration:none; margin-right:12px; }
-.card{ background:#fff; border-radius:10px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
-.form .header h1{ margin:0 0 4px 0; }
-.sub{ color:#4c6e63; margin:0 0 12px; }
-.label{ display:block; font-size:12px; color:#3a5a50; margin-bottom:6px; }
-.input, .search, select{ width:100%; padding:10px 12px; border:1px solid #c9d8d2; border-radius:8px; background:#fff; }
-.controls{ display:grid; grid-template-columns: repeat(5, minmax(160px,1fr)); gap:12px; }
-.search-row{ display:flex; gap:8px; align-items:center; }
-.actions-row{ margin-top:12px; display:flex; gap:8px; }
-.btn{ display:inline-block; padding:10px 14px; border-radius:8px; text-decoration:none; border:1px solid transparent; cursor:pointer; }
-.btn-primary{ background:var(--accent); color:#fff; }
-.btn-secondary{ background:#e7f3ef; color:var(--brand); border-color:#cfe6dc; }
-.table{ width:100%; border-collapse:collapse; }
-.table th, .table td{ padding:10px; border-bottom:1px solid #e5eee9; }
-.page-title{ margin-top:0; }
-.pill{ padding:3px 8px; border-radius:999px; font-size:12px; }
-.pill--ok{ background:#e6f7f0; color:#0a7a52; }
-.pill--bad{ background:#fdeeee; color:#ad2b2b; }
-.alert-bad{ background:#fdeeee; color:#842029; padding:10px; border-radius:8px; }
-.hidden{ display:none; }
+:root{
+  --lp-green:#173A2E;      /* Lindsay Park deep green */
+  --lp-green-900:#113026;
+  --lp-cream:#F3F2EB;
+  --lp-gold:#CBB36B;
+}
+
+body.page{
+  margin:0;
+  background:#f7f6f1;      /* warm off-white like your existing pages */
+  color:#111;
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,"Noto Sans","Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
+}
+
+/* --- Header bar --- */
+.site-header{
+  position:sticky; top:0; z-index:100;
+  display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:16px;
+  padding:10px 16px;
+  background:var(--lp-green); color:#fff;
+  border-bottom:1px solid rgba(255,255,255,.15);
+}
+.header-left{ display:flex; align-items:center; gap:10px; font-weight:600; }
+.status-dot{ width:10px; height:10px; border-radius:50%; background:var(--lp-gold); display:inline-block; box-shadow:0 0 0 2px rgba(255,255,255,.15) inset; }
+.brand img{ height:28px; display:block; margin:auto; opacity:.95; }
+.header-right{ justify-self:end; display:flex; gap:24px; align-items:center; }
+.header-right a{ color:#fff; text-decoration:none; font-weight:500; opacity:.9; }
+.header-right a:hover{ opacity:1; text-decoration:underline; }
+
+/* --- Page chrome --- */
+.container{ max-width:1100px; margin:36px auto; padding:0 16px; }
+.madeby{ text-align:center; color:#6b7280; margin:36px 0; font-size:.9rem; }
+
+/* Keep existing card/table/button styles from your CSS if you have them.
+   This file focuses on the header and generic layout only. */

@@ -1,24 +1,34 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>{% block title %}LP Admin{% endblock %}</title>
+  <meta charset="utf-8" />
+  <title>{% block title %}Staff Admin{% endblock %}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/static/admin.css?v=4">
+  <link rel="stylesheet" href="/static/admin.css?v=5" />
 </head>
 <body class="page">
-  <header class="topbar">
-    <div class="container">
-      <a class="brand" href="/admin/staff">Lindsay Park</a>
-      <nav class="nav">
-        <a href="/admin/staff">Staff</a>
-        <a href="/admin/staff/new">Add Staff</a>
-      </nav>
+  <!-- Site header -->
+  <header class="site-header">
+    <div class="header-left">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span>Staff Admin</span>
     </div>
+
+    <a class="brand" href="/admin/staff" aria-label="Lindsay Park">
+      <img src="/static/lindsay-park-logo.png" alt="Lindsay Park" />
+    </a>
+
+    <nav class="header-right" aria-label="Primary navigation">
+      <a href="/admin/staff">Staff</a>
+      <a href="/admin/staff/new">Add</a>
+      <a href="/admin/logout">Logout</a>
+    </nav>
   </header>
 
   <main class="container">
     {% block content %}{% endblock %}
   </main>
+
+  <footer class="madeby">Built for Lindsay Park</footer>
 </body>
 </html>
