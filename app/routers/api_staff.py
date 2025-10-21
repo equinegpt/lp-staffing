@@ -2,7 +2,10 @@
 from __future__ import annotations
 from typing import Any, Mapping, List
 from datetime import date as _date
-
+from fastapi import Query
+from fastapi.responses import JSONResponse
+from app.core.db import engine
+from app.services.staff import fetch_staff_for_list
 import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException, Request, status as http_status
 from app.core.constants import ROLE_WHERE, LOC_WHERE
@@ -18,15 +21,18 @@ def _as_bool(v: Any, default: bool = True) -> bool:
     if isinstance(v, str): return v.strip().lower() in {"1","true","t","yes","y"}
     return default
 
-def _to_api(row: Mapping[str, Any]) -> dict:
+def staff_to_api(row):
+    # row is a Mapping (from fetch_staff_for_list)
     return {
         "id": str(row.get("id") or ""),
         "first_name": row.get("first_name") or row.get("given_name"),
         "last_name":  row.get("last_name")  or row.get("family_name"),
         "role":       row.get("role") or row.get("role_label") or row.get("primary_role_label"),
+        "location":   row.get("location") or row.get("location_label")
+                       or row.get("primary_location_label") or row.get("location_code"),
         "phone":      row.get("phone") or row.get("mobile"),
         "email":      row.get("email"),
-        "is_active":  _as_bool(row.get("is_active", True), True),
+        "is_active":  bool(row.get("is_active", True)),
         "notes":      row.get("notes"),
     }
 
@@ -35,15 +41,15 @@ def api_health():
     return {"ok": True}
 
 @router.get("/staff")
-def api_staff_list() -> List[dict]:
-    with engine.connect() as c:
-        rows = c.execute(sa.text("""
-            SELECT id, given_name, family_name, mobile, email,
-                   (end_date IS NULL) AS is_active
-              FROM staff
-             ORDER BY family_name, given_name
-        """)).mappings().all()
-    return [_to_api(r) for r in rows]
+def api_staff_list(
+    q: str | None = None,
+    role: str | None = None,
+    location: str | None = None,
+    status: str = Query("all")  # show everyone by default
+):
+    day = _date.today()
+    rows = fetch_staff_for_list(day=day, role_code=role, loc_code=location, status=status, q=q)
+    return [staff_to_api(r) for r in rows]
 
 @router.post("/staff", status_code=http_status.HTTP_201_CREATED)
 async def api_staff_create(request: Request):
