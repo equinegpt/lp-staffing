@@ -1,34 +1,75 @@
-<!-- app/templates/partials/assignments_table.html -->
-<table style="width:100%; border-collapse:separate; border-spacing:0;">
-  <thead>
-    <tr>
-      <th style="text-align:left; padding:10px 12px;">Role</th>
-      <th style="text-align:left; padding:10px 12px;">Location</th>
-      <th style="text-align:left; padding:10px 12px;">Start</th>
-      <th style="text-align:left; padding:10px 12px;">End</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
+{# app/templates/partials/assignments_table.html #}
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Role</th><th>Location</th><th>Start</th><th>End</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
     {% for a in assignments %}
-      <tr style="border-top:1px solid #eee;">
-        <td style="padding:10px 12px;">{{ a.role_label }} — {{ a.role_code }}</td>
-        <td style="padding:10px 12px;">{{ a.location_code }}</td>
-        <td style="padding:10px 12px;">{{ a.effective_start }}</td>
-        <td style="padding:10px 12px;">{{ a.effective_end or '—' }}</td>
-        <td style="padding:10px 12px; text-align:right;">
-          {% if not a.effective_end %}
-            <form hx-post="/admin/staff/{{ s_id }}/assign/{{ a.id }}/end"
-                  hx-target="#assignments" hx-swap="innerHTML" style="display:inline;">
-              <input type="date" name="end_date" required />
-              <button class="btn small warn" type="submit">End</button>
-            </form>
-          {% endif %}
+      <tr>
+        <td>{{ a.role_label }} ({{ a.role_code }})</td>
+        <td>{{ a.location_code }}</td>
+        <td>{{ a.effective_start }}</td>
+        <td>{{ a.effective_end or "—" }}</td>
+        <td>
+          <form
+            hx-post="/admin/staff/{{ s_id }}/assign/{{ a.id }}/end"
+            hx-target="#assignments"
+            hx-swap="outerHTML"
+            class="inline"
+          >
+            <input type="date" name="end_date" class="control" />
+            <button class="btn small" type="submit">End</button>
+          </form>
         </td>
       </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No assignments yet.</td></tr>
     {% endfor %}
-    {% if assignments|length == 0 %}
-      <tr><td colspan="5" style="padding:12px;">No assignments.</td></tr>
-    {% endif %}
-  </tbody>
-</table>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <form
+    hx-post="/admin/staff/{{ s_id }}/assign"
+    hx-target="#assignments"
+    hx-swap="outerHTML"
+  >
+    <div class="grid four">
+      <div>
+        <label>Role</label>
+        <select name="role_code" class="control" required>
+          <option value="">— select —</option>
+          {% for r in roles %}
+            <option value="{{ r.code }}">{{ r.label }} — {{ r.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Location <small>(required)</small></label>
+        <select name="location_code" class="control" required>
+          <option value="">— select —</option>
+          {% for l in locations %}
+            <option value="{{ l.code }}">{{ l.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Start</label>
+        <input type="date" name="effective_start" class="control" required />
+      </div>
+      <div>
+        <label>End <small>(optional)</small></label>
+        <input type="date" name="effective_end" class="control" />
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
+      <button class="btn primary" type="submit">Add assignment</button>
+      <small class="muted">Only one active role/location at a time — adding a new one ends the current one.</small>
+    </div>
+  </form>
+</div>

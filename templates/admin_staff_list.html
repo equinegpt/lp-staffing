@@ -1,87 +1,75 @@
-<!-- app/templates/admin_staff_list.html -->
 {% extends "base.html" %}
 {% block title %}Staff list{% endblock %}
-{% block body %}
+{% block content %}
 
-  <h1 style="font-size:34px; margin:8px 0 18px;">Staff list — {{ day|date_long }}</h1>
+<h1>Staff list — {{ day|date_long }}</h1>
 
-  <section class="filters">
-    <form class="grid" method="get" action="/admin/staff">
-      <!-- Date -->
-      <div>
-        <label for="d">Date</label>
-        <input id="d" name="d" type="date" value="{{ day }}" />
-      </div>
+<form method="get" class="filters" action="/admin/staff">
+  <div>
+    <label>Date</label>
+    <input class="control" type="date" name="d" value="{{ day }}">
+  </div>
 
-      <!-- Role -->
-      <div>
-        <label for="role">Role</label>
-        <select id="role" name="role">
-          <option value="">Any role</option>
-          {% for r in roles %}
-            <option value="{{ r.code }}" {{ 'selected' if active_role==r.code else '' }}>
-              {{ r.label }}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
+  <div>
+    <label>Role</label>
+    <select class="control" name="role">
+      <option value="">Any role</option>
+      {% for r in roles %}
+        <option value="{{ r.code }}" {% if active_role==r.code %}selected{% endif %}>
+          {{ r.label }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
 
-      <!-- Location -->
-      <div>
-        <label for="loc">Location</label>
-        <select id="loc" name="location">
-          <option value="">Any location</option>
-          {% for l in locations %}
-            <option value="{{ l.code }}" {{ 'selected' if active_loc==l.code else '' }}>
-              {{ l.name }}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
+  <div>
+    <label>Location</label>
+    <select class="control" name="location">
+      <option value="">Any location</option>
+      {% for l in locations %}
+        <option value="{{ l.code }}" {% if active_loc==l.code %}selected{% endif %}>
+          {{ l.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
 
-      <!-- Status -->
-      <div>
-        <label for="status">Status</label>
-        <select id="status" name="status">
-          <option value=""          {{ 'selected' if (status or '')==''        else '' }}>Any status</option>
-          <option value="active"    {{ 'selected' if status=='active'          else '' }}>Active</option>
-          <option value="inactive"  {{ 'selected' if status=='inactive'        else '' }}>Inactive</option>
-        </select>
-      </div>
+  <div>
+    <label>Status</label>
+    <select class="control" name="status">
+      <option value=""  {% if status=="" %}selected{% endif %}>Any status</option>
+      <option value="active"   {% if status=="active" %}selected{% endif %}>Active</option>
+      <option value="inactive" {% if status=="inactive" %}selected{% endif %}>Inactive</option>
+    </select>
+  </div>
 
-      <!-- Search + Apply (same row) -->
-      <div class="search-wrap">
-        <input type="text" name="q" placeholder="name or mobile" value="{{ q }}" />
-        <button class="btn" type="submit">Apply</button>
-      </div>
-    </form>
+  <div>
+    <label>Search</label>
+    <input class="control" type="text" name="q" value="{{ q }}" placeholder="name or mobile">
+  </div>
 
-    <div class="tool-row">
-      <div class="left">
-        <a class="btn primary" href="/admin/staff/new">+ Add staff</a>
-        <a class="btn ghost" href="/admin/staff/export.csv?d={{ day }}&role={{ active_role }}&location={{ active_loc }}&status={{ status }}&q={{ q }}">Export CSV</a>
-      </div>
-    </div>
-  </section>
+  <div>
+    <label>&nbsp;</label>
+    <button class="btn" type="submit">Apply</button>
+  </div>
+</form>
 
-  <section class="card" style="margin-top:16px; padding:0;">
-    <table class="table" style="width:100%; border-collapse:separate; border-spacing:0;">
-      <thead>
-        <tr>
-          <th style="text-align:left; padding:14px 16px;">Name</th>
-          <th style="text-align:left; padding:14px 16px;">Role</th>
-          <th style="text-align:left; padding:14px 16px;">Location</th>
-          <th style="text-align:left; padding:14px 16px;">Mobile</th>
-          <th style="text-align:left; padding:14px 16px;">Status</th>
-        </tr>
-      </thead>
-      <tbody id="staff-rows"
-             hx-get="/admin/staff/table?d={{ day }}&role={{ active_role }}&location={{ active_loc }}&status={{ status }}&q={{ q }}"
-             hx-trigger="load"
-             hx-swap="innerHTML">
-        <tr><td style="padding:20px;">Loading…</td></tr>
-      </tbody>
-    </table>
-  </section>
+<div class="actions">
+  <a class="btn primary" href="/admin/staff/new">+ Add staff</a>
+  <a class="btn" href="/admin/staff/export.csv?d={{ day }}&role={{ active_role }}&location={{ active_loc }}&status={{ status }}&q={{ q }}">Export CSV</a>
+</div>
+
+<div class="card table-wrap">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th><th>Role</th><th>Location</th><th>Mobile</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="staff-rows">
+      {% include "partials/staff_table_rows.html" %}
+    </tbody>
+  </table>
+</div>
 
 {% endblock %}

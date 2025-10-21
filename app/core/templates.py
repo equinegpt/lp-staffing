@@ -3,6 +3,14 @@ from pathlib import Path
 from datetime import date as _date, datetime as _dt
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from __future__ import annotations
+import re
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+TEMPLATES_DIR = ROOT_DIR / "app" / "templates"
+
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
 
 # --- Locate project root that actually contains /templates and /static ---
 _here = Path(__file__).resolve()
@@ -36,45 +44,33 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # ---------------- Jinja filters ----------------
 
 def _ordinal(n: int) -> str:
-    # 1st, 2nd, 3rd, 4th...
-    if 10 <= n % 100 <= 20:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
+    # 1st 2nd 3rd 4th...
+    return "%d%s" % (n, "th" if 11 <= (n % 100) <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
 
-def date_long(value) -> str:
-    """
-    Render as 'Tuesday October 21st'. Accepts date, datetime or ISO string.
-    """
-    d: _date
-    if isinstance(value, _date):
-        d = value
-    elif isinstance(value, _dt):
-        d = value.date()
-    elif isinstance(value, str):
+def date_long(v):
+    """ 'YYYY-MM-DD' or date -> 'Tuesday October 21st' """
+    if isinstance(v, str):
         try:
-            d = _date.fromisoformat(value)
+            d = datetime.strptime(v, "%Y-%m-%d").date()
         except Exception:
-            return value
+            return v
+    elif isinstance(v, date):
+        d = v
     else:
-        return str(value)
-
+        return v
     return f"{d.strftime('%A')} {d.strftime('%B')} {_ordinal(d.day)}"
 
-def phone_au(raw: str | None) -> str:
-    """
-    Render Australian mobiles: '+61412XXXXXX' -> '0412 345 678'
-    Leaves other numbers untouched.
-    """
-    if not raw:
-        return ""
-    s = str(raw).strip().replace(" ", "")
-    if s.startswith("+61"):
-        s = "0" + s[3:]
-    if len(s) == 10 and s.startswith("0"):
-        return f"{s[0:4]} {s[4:7]} {s[7:10]}"
-    return raw
+def phone_au(v: str):
+    """ +61xxxxxxx -> 04xx xxx xxx  (non-+61 left as-is when unsure) """
+    if not v:
+        return v
+    digits = re.sub(r"\D+", "", v)
+    # strip +61/61 -> leading 0
+    if digits.startswith("61"):
+        digits = "0" + digits[2:]
+    if len(digits) == 10 and digits.startswith("0"):
+        return f"{digits[0:4]} {digits[4:7]} {digits[7:10]}"
+    return v
 
 templates.env.filters["date_long"] = date_long
 templates.env.filters["phone_au"] = phone_au

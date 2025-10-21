@@ -360,3 +360,12 @@ input[type="date"] { padding:8px 10px; }
 .alert { padding: 10px 12px; border-radius: 10px; margin: 8px 0 16px; }
 .alert-bad { color: #7a1212; background: #fdecec; border: 1px solid #f8d0d0; }
 .madeby { text-align: center; color:#667085; margin-top: 18px; }
+
+/* append to: app/static/admin.css */
+input[type="date"] { font: inherit; }
+.filters { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)) 120px; gap: 16px; align-items: end; }
+.filters .control { width: 100%; }
+.table-wrap { overflow-x: auto; }
+.grid.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid.four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.card .inline { display: inline-flex; gap: 8px; align-items: center; }

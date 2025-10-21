@@ -1,21 +1,20 @@
-<!-- app/templates/partials/staff_table_rows.html -->
-{% for s in staff %}
-<tr style="border-top:1px solid #eee;">
-  <td style="padding:14px 16px;">
-    <a href="/admin/staff/{{ s.id }}">{{ s.display_name }}</a>
+{# app/templates/partials/staff_table_rows.html #}
+{% for r in staff %}
+<tr>
+  <td class="cell-name">
+    <a href="/admin/staff/{{ r.id }}">{{ r.display_name }}</a>
   </td>
-  <td style="padding:14px 16px;">{{ s.role_label or s.role_code or '—' }}</td>
-  <td style="padding:14px 16px;">{{ s.location_code or '—' }}</td>
-  <td style="padding:14px 16px;">{{ s.mobile|phone_au }}</td>
-  <td style="padding:14px 16px;">
-    {% if s.is_active %}
-      <span class="badge badge-success">Active</span>
+  <td>{{ r.role_label or "—" }}</td>
+  <td>{{ r.location_code or "—" }}</td>
+  <td>{{ r.mobile|phone_au }}</td>
+  <td>
+    {% if r.is_active %}
+      <span class="badge badge--ok">Active</span>
     {% else %}
-      <span class="badge badge-danger">Inactive</span>
+      <span class="badge badge--bad">Inactive</span>
     {% endif %}
   </td>
 </tr>
+{% else %}
+<tr><td colspan="5" class="muted">No matching staff.</td></tr>
 {% endfor %}
-{% if staff|length == 0 %}
-<tr><td colspan="5" style="padding:16px;">No staff match those filters.</td></tr>
-{% endif %}
