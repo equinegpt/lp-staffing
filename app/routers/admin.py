@@ -99,7 +99,7 @@ def _select_staff_api_row(conn, staff_id: str):
     return conn.execute(sa.text("""
         SELECT s.id,
                s.given_name, s.family_name, s.mobile, s.email,
-               (s.end_date IS NULL) AS is_active,
+               (s.end_date IS NULL OR s.end_date >= :today) AS is_active,
                r.code  AS role_code,
                r.label AS role_label,
                l.code  AS location_code,
@@ -291,20 +291,24 @@ async def admin_staff_create_json(request: Request):
     fn = data.get("last_name")  or data.get("lastName")  or data.get("family_name")
     phone = data.get("phone") or data.get("mobile")
     email = data.get("email")
-    is_active = data.get("is_active", data.get("isActive", True))
+    is_active = _as_bool(data.get("is_active", data.get("isActive", True)), True)
     role_code = data.get("role") or data.get("role_code")
     loc_code  = data.get("location") or data.get("location_code")
     start     = _date.today()
+    end_for_insert = None if is_active else (start - timedelta(days=1))
 
     if not (gn and fn and phone):
         return HTMLResponse("first_name, last_name, phone required", status_code=400)
 
     display_name = f"{gn} {fn}".strip()
 
-    is_active = data.get("is_active", data.get("isActive", True))
-
     with engine.begin() as c:
-        ...
+        # de-dupe by mobile
+        dup = c.execute(sa.text("SELECT id FROM staff WHERE mobile=:m"), {"m": phone.strip()}).first()
+        if dup:
+            row = _select_staff_api_row(c, dup.id)
+            return staff_to_api(row)
+
         staff_id = c.execute(sa.text("""
             INSERT INTO staff (given_name, family_name, display_name, mobile, email, start_date, end_date, status)
             VALUES (:gn,:fn,:dn,:m,:e,:sd,:ed,:st)
@@ -312,11 +316,11 @@ async def admin_staff_create_json(request: Request):
         """), {
             "gn": gn, "fn": fn, "dn": display_name, "m": phone.strip(),
             "e": email, "sd": start,
-            "ed": (None if is_active else start),
+            "ed": end_for_insert,
             "st": ("ACTIVE" if is_active else "INACTIVE"),
         }).scalar_one()
 
-        # NEW: create current assignment if role/location supplied
+        # ensure a current assignment when role/location provided
         _upsert_current_assignment(c, staff_id, role_code, loc_code, start)
 
         row = _select_staff_api_row(c, staff_id)
@@ -336,13 +340,14 @@ async def admin_staff_update_json(staff_id: str, request: Request):
     loc_code  = data.get("location") or data.get("location_code")
 
     today = _date.today()
+    yesterday = today - timedelta(days=1)
 
     with engine.begin() as c:
         exists = c.execute(sa.text("SELECT id FROM staff WHERE id=:sid"), {"sid": staff_id}).first()
         if not exists:
             return HTMLResponse("Staff not found", status_code=404)
 
-        # Update Staff core fields
+        # Update core fields
         sets, params = [], {"sid": staff_id}
         if gn is not None:
             sets += ["given_name=:gn"]; params["gn"] = gn
@@ -355,22 +360,22 @@ async def admin_staff_update_json(staff_id: str, request: Request):
         if email is not None:
             params["e"] = email; sets += ["email=:e"]
 
-        # Handle active toggle
+        # Active toggle (keep status in sync)
         if is_active is not None:
             if bool(is_active):
                 sets += ["end_date=NULL", "status='ACTIVE'"]
             else:
-                params["ed"] = today
+                params["ed"] = yesterday
                 sets += ["end_date=:ed", "status='INACTIVE'"]
 
         if sets:
             c.execute(sa.text(f"UPDATE staff SET {', '.join(sets)} WHERE id=:sid"), params)
 
-        # NEW: adjust assignments if role/location supplied
+        # Adjust assignment if role/location supplied
         if role_code is not None or loc_code is not None:
             _upsert_current_assignment(c, staff_id, role_code, loc_code, today)
 
-        # If became inactive, close any open assignment as of today
+        # If became inactive, close any open assignment as of yesterday
         if is_active is not None and not bool(is_active):
             c.execute(sa.text("""
                 UPDATE staff_role_assignment
@@ -378,7 +383,7 @@ async def admin_staff_update_json(staff_id: str, request: Request):
                  WHERE staff_id = :sid
                    AND effective_start <= :d
                    AND (effective_end IS NULL OR :d < effective_end)
-            """), {"sid": staff_id, "d": today})
+            """), {"sid": staff_id, "d": yesterday})
 
         row = _select_staff_api_row(c, staff_id)
 
