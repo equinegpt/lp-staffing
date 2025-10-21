@@ -1,62 +1,102 @@
-{% extends "base.html" %}
-{% block title %}{{ s.display_name }} • Staff Admin{% endblock %}
+<!-- templates/admin_staff_detail.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ s.display_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/admin.css?v=5" />
+  <style>
+    .container { max-width: 880px; margin: 0 auto; padding: 22px; }
+    .page-head { display:flex; align-items:center; gap:12px; margin:18px 0 14px; }
+    .status-pill { padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+    .status-ok { background:#e8f6ec; color:#136f3c; }
+    .status-off { background:#fde8e8; color:#b91c1c; }
 
-{% block content %}
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; }
+    .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
+    .label { display:block; font-size:12px; font-weight:600; color:#6b7280; margin-bottom:6px; }
+    .value { font-size:16px; color:#111827; }
 
-  {# Title row: name + status on left, smaller Edit button on right #}
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
-    <h1 style="display:flex; align-items:center; gap:12px; margin:0;">
-      {{ s.display_name }}
-      <span class="status-pill {{ 'status-ok' if not s.end_date else 'status-bad' }}">
-        {{ 'Active' if not s.end_date else 'Inactive' }}
-      </span>
-    </h1>
-    <a class="btn btn-secondary" href="/admin/staff/{{ s.id }}/edit"
-       style="font-size:14px; padding:6px 12px;">Edit</a>
-  </div>
+    .date-input, input[type="date"] { font-family:inherit; font-size:14px; padding:8px 10px; border:1px solid #d8d8d8; border-radius:8px; }
+    .actions-card { margin-top:14px; }
+    .actions-grid { display:grid; grid-template-columns: 1fr auto; gap:12px 16px; align-items:end; }
 
-  {# Two-column info card: contact on left; start/end + action on right #}
-  <div class="card" style="
-        display:grid;
-        grid-template-columns: 1fr 320px;
-        gap:24px;
-        align-items:start;
-        margin-top:12px;
-      ">
+    .btn { border:none; border-radius:10px; padding:10px 14px; cursor:pointer; }
+    .btn-danger { background:#b91c1c; color:#fff; }
+    .btn-danger:hover { background:#991b1b; }
+    .btn-success { background:#166534; color:#fff; }
+    .btn-success:hover { background:#14532d; }
+    .btn-outline { background:#eef2f7; color:#1a2433; }
+  </style>
+</head>
+<body>
+  <main class="container">
 
-    {# Left column — contact #}
-    <div>
-      <div class="field"><span class="label">Mobile</span><div>{{ s.mobile or '—' }}</div></div>
-      <div class="field"><span class="label">Email</span><div>{{ s.email or '—' }}</div></div>
-    </div>
-
-    {# Right column — start/end and end-employment controls #}
-    <div>
-      <div class="field"><span class="label">Start</span><div>{{ s.start_date }}</div></div>
-      <div class="field"><span class="label">End</span><div>{{ s.end_date or '—' }}</div></div>
-
-      <form action="/admin/staff/{{ s.id }}/end" method="post"
-            style="display:flex; gap:8px; justify-content:flex-end; align-items:center; margin-top:8px;">
-        <input class="input" type="date" name="end_date" style="max-width:150px" required />
-        <button class="btn btn-danger" type="submit" style="font-size:14px; padding:6px 12px;">
-          End employment
-        </button>
-      </form>
-
+    <div class="page-head">
+      <h1 style="margin:0;">{{ s.display_name }}</h1>
       {% if s.end_date %}
-        <div style="display:flex; justify-content:flex-end; margin-top:6px;">
-          <a class="btn btn-secondary" href="/admin/staff/{{ s.id }}/reactivate"
-             style="font-size:14px; padding:6px 12px;"
-             onclick="event.preventDefault(); this.nextElementSibling.submit();">Reactivate</a>
-          <form action="/admin/staff/{{ s.id }}/reactivate" method="post" style="display:none"></form>
-        </div>
+        <span class="status-pill status-off">Inactive</span>
+      {% else %}
+        <span class="status-pill status-ok">Active</span>
       {% endif %}
-
-      <div class="hint" style="text-align:right;">Choose the end date then click “End employment”.</div>
+      <div style="margin-left:auto;">
+        <a class="btn btn-outline" href="/admin/staff/{{ s.id }}/edit">Edit</a>
+      </div>
     </div>
-  </div>
 
-  <h2 style="margin-top:22px">Assignments</h2>
-  {% include "partials/assignments_table.html" with context %}
+    <div class="card">
+      <div class="grid-2">
+        <div>
+          <label class="label">Mobile</label>
+          <div class="value">{{ s.mobile | au_mobile }}</div>
+        </div>
+        <div>
+          <label class="label">Start</label>
+          <div class="value">{{ s.start_date }}</div>
+        </div>
+        <div>
+          <label class="label">Email</label>
+          <div class="value">{{ s.email or "—" }}</div>
+        </div>
+        <div>
+          <label class="label">End</label>
+          <div class="value">{{ s.end_date or "—" }}</div>
+        </div>
+      </div>
+    </div>
 
-{% endblock %}
+    <div class="card actions-card">
+      <div class="actions-grid">
+        <div style="display:flex; gap:12px; align-items:end;">
+          <div>
+            <label for="end-date" class="label">Choose end date</label>
+            <input id="end-date" name="end_date" type="date" class="date-input">
+          </div>
+          <form method="post" action="/admin/staff/{{ s.id }}/end" class="inline">
+            <input type="hidden" name="end_date" id="end-date-hidden">
+            <button class="btn btn-danger">End employment</button>
+          </form>
+        </div>
+        <div style="display:flex; justify-content:flex-end;">
+          <form method="post" action="/admin/staff/{{ s.id }}/reactivate" class="inline">
+            <button class="btn btn-success">Reactivate</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Keep hidden field in sync with the visible date
+      const endInput = document.getElementById('end-date');
+      const hidden = document.getElementById('end-date-hidden');
+      if (endInput && hidden) {
+        hidden.value = endInput.value;
+        endInput.addEventListener('change', () => hidden.value = endInput.value);
+      }
+    </script>
+
+    <p class="subtle" style="margin-top:18px; color:#6b7280; font-size:12px;">Built for Lindsay Park</p>
+  </main>
+</body>
+</html>

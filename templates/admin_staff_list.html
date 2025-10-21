@@ -1,101 +1,122 @@
-{% extends "base.html" %}
-{% block title %}Staff · {{ day }}{% endblock %}
+<!-- templates/admin_staff_list.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Staff list</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/admin.css?v=5">
 
-{% block content %}
-<h1>Staff active on {{ day }}</h1>
+  <style>
+    /* Ensure native date inputs use site font + spacing */
+    input[type="date"] {
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.4;
+      padding: 8px 10px;
+      border: 1px solid #d8d8d8;
+      border-radius: 8px;
+      background-color: #fff;
+    }
 
-<div class="toolbar">
-  <form class="filters" method="get" action="/admin/staff">
-    <div class="control">
-      <label>Date</label>
-      <input type="date" name="d" value="{{ day }}"/>
-    </div>
+    .page-title { margin: 22px 0 8px; font-size: 28px; font-weight: 800; color: #111827; }
+    .toolbar { display:flex; gap:14px; flex-wrap:wrap; align-items:end; margin: 10px 0 18px; }
+    .field { display:flex; flex-direction:column; gap:6px; }
+    .actions { margin-left:auto; display:flex; gap:10px; }
 
-    <div class="control">
-      <label>Role</label>
-      <select name="role">
-        <option value="">Any role</option>
-        {% for r in roles %}
-          <option value="{{ r.code }}" {% if active_role == r.code %}selected{% endif %}>{{ r.code }}</option>
-        {% endfor %}
-      </select>
-    </div>
+    .btn { border-radius:10px; padding:10px 14px; border:none; cursor:pointer; }
+    .btn-primary { background:#0b4a2f; color:#fff; }
+    .btn-secondary { background:#eef2f7; color:#1a2433; }
 
-    <div class="control">
-      <label>Location</label>
-      <select name="location">
-        <option value="">Any location</option>
-        {% for l in locations %}
-          <option value="{{ l.code }}" {% if active_loc == l.code %}selected{% endif %}>{{ l.code }}</option>
-        {% endfor %}
-      </select>
-    </div>
+    table.staff { width:100%; border-collapse:separate; border-spacing:0 10px; }
+    table.staff th { text-align:left; font-weight:600; color:#475569; padding:8px 12px; }
+    table.staff td { background:#fff; padding:16px 12px; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb; }
+    table.staff tr td:first-child { border-left:1px solid #e5e7eb; border-top-left-radius:12px; border-bottom-left-radius:12px; }
+    table.staff tr td:last-child { border-right:1px solid #e5e7eb; border-top-right-radius:12px; border-bottom-right-radius:12px; }
 
-    <div class="control">
-      <label>Status</label>
-      <select name="status">
-        <option value="" {% if not status %}selected{% endif %}>Any status</option>
-        <option value="active"   {% if status=='active' %}selected{% endif %}>Active</option>
-        <option value="inactive" {% if status=='inactive' %}selected{% endif %}>Inactive</option>
-      </select>
-    </div>
+    .badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+    .badge--ok { background:#e8f6ec; color:#136f3c; }
+    .badge--off { background:#fde8e8; color:#b91c1c; }
 
-    <div class="control">
-      <label>Search</label>
-      <input
-        type="text"
-        name="q"
-        value="{{ q }}"
-        placeholder="name or mobile"
-        onkeydown="if(event.key==='Enter'){this.form.submit();}"
-      />
-    </div>
+    .subtle { color:#6b7280; font-size:12px; }
+    .container { max-width: 1040px; margin: 0 auto; padding: 22px; }
+  </style>
+</head>
+<body>
+  <main class="container">
 
-    <div class="control">
-      <label>&nbsp;</label>
-      <button class="btn btn-outline" type="submit">Apply</button>
-    </div>
-  </form>
+    <h1 class="page-title">Staff list — {{ day | long_date }}</h1>
 
-  <div class="actions-right">
-    <a class="btn btn-green" href="/admin/staff/new">+ Add staff</a>
-    <a class="btn btn-outline"
-       href="/admin/staff/export.csv?d={{ day }}&role={{ active_role or '' }}&location={{ active_loc or '' }}&status={{ status or '' }}&q={{ q }}">
-      Export CSV
-    </a>
-  </div>
-</div>
+    <form method="get" action="/admin/staff" class="toolbar">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" name="d" value="{{ day }}">
+      </div>
 
-<div class="card">
-  <table class="table">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Role</th>
-        <th>Location</th>
-        <th>Mobile</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in staff %}
+      <div class="field">
+        <label>Role</label>
+        <select name="role">
+          <option value="">Any role</option>
+          {% for r in roles %}
+            <option value="{{ r.code }}" {% if active_role==r.code %}selected{% endif %}>
+              {{ r.label }} — {{ r.code }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Location</label>
+        <select name="location">
+          <option value="">Any location</option>
+          {% for l in locations %}
+            <option value="{{ l.code }}" {% if active_loc==l.code %}selected{% endif %}>
+              {{ l.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Status</label>
+        <select name="status">
+          <option value=""  {% if status=="" %}selected{% endif %}>Any status</option>
+          <option value="active"   {% if status=="active" %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if status=="inactive" %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+
+      <div class="field" style="min-width:260px;">
+        <label>Search</label>
+        <input type="text" name="q" placeholder="name or mobile" value="{{ q or '' }}">
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-secondary" type="submit">Apply</button>
+        <a class="btn btn-primary" href="/admin/staff/new">+ Add staff</a>
+        <a class="btn btn-secondary"
+           href="/admin/staff/export.csv?d={{ day }}&q={{ q or '' }}&role={{ active_role or '' }}&location={{ active_loc or '' }}&status={{ status or '' }}">
+           Export CSV
+        </a>
+      </div>
+    </form>
+
+    <table class="staff">
+      <thead>
         <tr>
-          <td><a href="/admin/staff/{{ r.id }}">{{ r.display_name }}</a></td>
-          <td>{{ r.role_label or r.role_code or '—' }}</td>
-          <td>{{ r.location_code or '—' }}</td>
-          <td>{{ r.mobile }}</td>
-          <td>
-            {% if r.is_active %}
-              <span class="pill pill-ok">Active</span>
-            {% else %}
-              <span class="pill pill-muted">Inactive</span>
-            {% endif %}
-          </td>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Location</th>
+          <th>Mobile</th>
+          <th style="width:120px;">Status</th>
         </tr>
-      {% else %}
-        <tr><td colspan="5">No staff match your filters.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endblock %}
+      </thead>
+      <tbody id="staff-rows">
+        {% include 'partials/staff_table_rows.html' %}
+      </tbody>
+    </table>
+
+    <p class="subtle" style="margin-top:18px;">Built for Lindsay Park</p>
+  </main>
+</body>
+</html>
