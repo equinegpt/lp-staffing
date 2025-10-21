@@ -1,11 +1,10 @@
 from __future__ import annotations
 import io, csv
 from datetime import date as _date, timedelta
-from typing import Optional, Any, Mapping
+from typing import Optional, Any
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Request, Form, HTTPException, status as http_status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request, Form, status as http_status
 from starlette.responses import RedirectResponse, HTMLResponse, StreamingResponse
 
 from app.core.db import engine
@@ -50,7 +49,7 @@ def _normalize_loc_code(code: str | None) -> str | None:
 
 def _upsert_current_assignment(conn, staff_id: str, role_code: str | None, loc_code: str | None, start: _date) -> None:
     """Ensure there is a current assignment effective on 'start'.
-       If different from existing, end the current and insert a new one."""
+       If different from existing, end the current at 'start' and insert a new one."""
     if not role_code:
         return  # nothing to do
 
@@ -64,13 +63,13 @@ def _upsert_current_assignment(conn, staff_id: str, role_code: str | None, loc_c
         loc = conn.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": loc_code}).first()
         loc_id = loc.id if loc else None
 
-    # Current assignment as of 'start'
+    # Current assignment as of 'start' (exclusive end)
     current = conn.execute(sa.text("""
         SELECT id, role_id, location_id, effective_start, effective_end
           FROM staff_role_assignment
          WHERE staff_id = :sid
            AND effective_start <= :st
-           AND (effective_end IS NULL OR effective_end >= :st)
+           AND (effective_end IS NULL OR effective_end > :st)
          ORDER BY effective_start DESC
          LIMIT 1
     """), {"sid": staff_id, "st": start}).mappings().first()
@@ -79,14 +78,13 @@ def _upsert_current_assignment(conn, staff_id: str, role_code: str | None, loc_c
     if current and current.role_id == role.id and current.location_id == loc_id:
         return
 
-    # End previous (yesterday) if needed
+    # End previous at 'start' if needed (exclusive end)
     if current:
-        prev_end = start - timedelta(days=1)
         conn.execute(
             sa.text("""UPDATE staff_role_assignment
                           SET effective_end=:en
                         WHERE id=:aid AND (effective_end IS NULL OR effective_end > :en)"""),
-            {"en": prev_end, "aid": current.id}
+            {"en": start, "aid": current.id}
         )
 
     # Insert new current
@@ -96,10 +94,11 @@ def _upsert_current_assignment(conn, staff_id: str, role_code: str | None, loc_c
     """), {"sid": staff_id, "rid": role.id, "lid": loc_id, "st": start})
 
 def _select_staff_api_row(conn, staff_id: str):
+    # Exclusive end logic for both staff status and current assignment
     return conn.execute(sa.text("""
         SELECT s.id,
                s.given_name, s.family_name, s.mobile, s.email,
-               (s.end_date IS NULL OR s.end_date >= :today) AS is_active,
+               (s.end_date IS NULL OR s.end_date > :today) AS is_active,
                r.code  AS role_code,
                r.label AS role_label,
                l.code  AS location_code,
@@ -110,7 +109,7 @@ def _select_staff_api_row(conn, staff_id: str):
                 FROM staff_role_assignment a
                WHERE a.staff_id = s.id
                  AND a.effective_start <= :today
-                 AND (a.effective_end IS NULL OR a.effective_end >= :today)
+                 AND (a.effective_end IS NULL OR a.effective_end > :today)
                ORDER BY a.effective_start DESC
                LIMIT 1
           ) cur ON true
@@ -294,12 +293,12 @@ async def admin_staff_create_json(request: Request):
     is_active = _as_bool(data.get("is_active", data.get("isActive", True)), True)
     role_code = data.get("role") or data.get("role_code")
     loc_code  = data.get("location") or data.get("location_code")
-    start     = _date.today()
-    end_for_insert = None if is_active else (start - timedelta(days=1))
 
     if not (gn and fn and phone):
         return HTMLResponse("first_name, last_name, phone required", status_code=400)
 
+    start = _date.today()
+    end_for_insert = None if is_active else start  # exclusive end: not active on 'start'
     display_name = f"{gn} {fn}".strip()
 
     with engine.begin() as c:
@@ -340,7 +339,6 @@ async def admin_staff_update_json(staff_id: str, request: Request):
     loc_code  = data.get("location") or data.get("location_code")
 
     today = _date.today()
-    yesterday = today - timedelta(days=1)
 
     with engine.begin() as c:
         exists = c.execute(sa.text("SELECT id FROM staff WHERE id=:sid"), {"sid": staff_id}).first()
@@ -360,12 +358,12 @@ async def admin_staff_update_json(staff_id: str, request: Request):
         if email is not None:
             params["e"] = email; sets += ["email=:e"]
 
-        # Active toggle (keep status in sync)
+        # Active toggle (exclusive end)
         if is_active is not None:
             if bool(is_active):
                 sets += ["end_date=NULL", "status='ACTIVE'"]
             else:
-                params["ed"] = yesterday
+                params["ed"] = today
                 sets += ["end_date=:ed", "status='INACTIVE'"]
 
         if sets:
@@ -375,7 +373,7 @@ async def admin_staff_update_json(staff_id: str, request: Request):
         if role_code is not None or loc_code is not None:
             _upsert_current_assignment(c, staff_id, role_code, loc_code, today)
 
-        # If became inactive, close any open assignment as of yesterday
+        # If became inactive, close any open assignment as of today (exclusive)
         if is_active is not None and not bool(is_active):
             c.execute(sa.text("""
                 UPDATE staff_role_assignment
@@ -383,7 +381,7 @@ async def admin_staff_update_json(staff_id: str, request: Request):
                  WHERE staff_id = :sid
                    AND effective_start <= :d
                    AND (effective_end IS NULL OR :d < effective_end)
-            """), {"sid": staff_id, "d": yesterday})
+            """), {"sid": staff_id, "d": today})
 
         row = _select_staff_api_row(c, staff_id)
 
@@ -490,12 +488,13 @@ def admin_add_assignment(
             loc = c.execute(sa.text("SELECT id FROM location WHERE code=:c"), {"c": loc_code}).first()
             loc_id = loc.id if loc else None
 
+        # Current (exclusive end)
         current = c.execute(sa.text("""
             SELECT id, role_id, location_id, effective_start, effective_end
               FROM staff_role_assignment
              WHERE staff_id = :sid
                AND effective_start <= :st
-               AND (effective_end IS NULL OR effective_end >= :st)
+               AND (effective_end IS NULL OR effective_end > :st)
              ORDER BY effective_start DESC
              LIMIT 1
         """), {"sid": staff_id, "st": start}).mappings().first()
@@ -506,9 +505,12 @@ def admin_add_assignment(
                           {"en": end, "aid": current.id})
         else:
             if current:
-                new_prev_end = start - timedelta(days=1)
-                c.execute(sa.text("UPDATE staff_role_assignment SET effective_end=:en WHERE id=:aid AND (effective_end IS NULL OR effective_end > :en)"),
-                          {"en": new_prev_end, "aid": current.id})
+                # end previous at 'start' (exclusive end)
+                c.execute(sa.text("""
+                    UPDATE staff_role_assignment
+                       SET effective_end=:en
+                     WHERE id=:aid AND (effective_end IS NULL OR effective_end > :en)
+                """), {"en": start, "aid": current.id})
             c.execute(sa.text("""
                 INSERT INTO staff_role_assignment (staff_id, role_id, location_id, effective_start, effective_end)
                 VALUES (:sid, :rid, :lid, :st, :en)
