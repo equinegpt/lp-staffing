@@ -25,7 +25,8 @@
 </table>
 
 <form method="post" action="/admin/staff/{{ s.id }}/assign" class="assign-form">
-  <div class="grid">
+  <!-- changed only this wrapper class: 'controls assignments-controls' -->
+  <div class="controls assignments-controls">
     <div>
       <label class="label" for="role_code">Role</label>
       <select class="input" id="role_code" name="role_code" required>

@@ -171,3 +171,48 @@ select.input:focus{
 }
 .assign-form .btn-cell { display: flex; align-items: end; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+
+/* --- Assignments layout polish --- */
+.assignments-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr auto; /* Role | Location | Start | End | Button */
+  gap: 12px;
+  align-items: end;
+  margin-top: 12px; /* space between table and controls */
+}
+
+@media (max-width: 900px) {
+  .assignments-controls {
+    grid-template-columns: 1fr 1fr; /* stack nicely on small screens */
+  }
+}
+
+/* Explanatory line under the controls (if present) */
+.assignments-controls + .help,
+.assignments-controls + p {
+  margin-top: 6px;
+}
+
+/* --- Right-aligned employment actions under assignments --- */
+.employment-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.employment-actions form.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --- Red destructive button for End employment --- */
+.btn-danger {
+  background: #b63a3a;
+  color: #fff;
+  border: 1px solid transparent;
+}
+.btn-danger:hover { filter: brightness(0.96); }
+.btn-danger:active { filter: brightness(0.92); }
