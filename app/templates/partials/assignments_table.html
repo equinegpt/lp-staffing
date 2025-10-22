@@ -1,15 +1,69 @@
 <table class="table" aria-label="Assignments">
   <thead>
-    <tr><th>Role</th><th>Location</th><th>Start</th><th>End</th></tr>
+    <tr>
+      <th>Role</th>
+      <th>Location</th>
+      <th>Start</th>
+      <th>End</th>
+    </tr>
   </thead>
   <tbody>
-  {% for a in assignments %}
-    <tr>
-      <td>{{ a.role_label or a.role_code }}</td>
-      <td>{{ a.location_code or "—" }}</td>
-      <td>{{ a.effective_start }}</td>
-      <td>{{ a.effective_end or "—" }}</td>
-    </tr>
-  {% endfor %}
+    {% for a in assignments %}
+      <tr>
+        <td>{{ a.role_label or a.role_code or "—" }}</td>
+        <td>{{ a.location_code or "—" }}</td>
+        <td>{{ a.effective_start }}</td>
+        <td>{{ a.effective_end or "—" }}</td>
+      </tr>
+    {% endfor %}
+    {% if assignments|length == 0 %}
+      <tr>
+        <td colspan="4" class="empty">No assignments yet.</td>
+      </tr>
+    {% endif %}
   </tbody>
 </table>
+
+<form method="post" action="/admin/staff/{{ s.id }}/assign" class="assign-form">
+  <div class="grid">
+    <div>
+      <label class="label" for="role_code">Role</label>
+      <select class="input" id="role_code" name="role_code" required>
+        <option value="" disabled selected>— select —</option>
+        {% for r in roles %}
+          <option value="{{ r.code }}">{{ r.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label class="label" for="location_code">Location <small>(optional)</small></label>
+      <select class="input" id="location_code" name="location_code">
+        <option value="">— select —</option>
+        {% for l in locations %}
+          <option value="{{ l.code }}">{{ l.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label class="label" for="effective_start">Start</label>
+      <input class="input" id="effective_start" name="effective_start" type="date" required />
+    </div>
+
+    <div>
+      <label class="label" for="effective_end">End <small>(optional)</small></label>
+      <input class="input" id="effective_end" name="effective_end" type="date" />
+    </div>
+
+    <div class="btn-cell">
+      <label class="label sr-only">Add</label>
+      <button class="btn btn-secondary" type="submit">Add assignment</button>
+    </div>
+  </div>
+
+  <p class="help">
+    Only one active role/location at a time — adding a new one with a start date
+    will automatically end the current one at that date.
+  </p>
+</form>

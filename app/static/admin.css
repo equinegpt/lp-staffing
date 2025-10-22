@@ -152,3 +152,22 @@ select.input:focus{
 /* Detail / New / Edit forms – spacing */
 .form .field{ margin:14px 0; }
 .form .help{ color:var(--muted); font-size:.9rem; }
+
+/* --- detail page tweaks --- */
+.page-title .pill { margin-left: .5rem; vertical-align: middle; }
+
+.actions-row { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; }
+.actions-row .inline { display: flex; gap: .5rem; align-items: center; }
+
+.btn-danger { background: #b4231a; color: #fff; }
+.btn-danger:hover { background: #a11f18; }
+
+/* assignment form layout */
+.assign-form .grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr auto;
+  gap: .75rem;
+  align-items: end;
+}
+.assign-form .btn-cell { display: flex; align-items: end; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
