@@ -23,14 +23,13 @@
     {% include "partials/assignments_table.html" %}
   </section>
 
-  <div class="actions-row">
-    <!-- End employment (red button) -->
+  <!-- right-aligned controls under the assignments card -->
+  <div class="employment-actions">
     <form method="post" action="/admin/staff/{{ s.id }}/end" class="inline">
-      <input class="input" type="date" name="end_date" placeholder="dd/mm/yyyy" />
+      <input class="input" type="date" name="end_date" placeholder="dd / mm / yyyy" />
       <button class="btn btn-danger" type="submit">End employment</button>
     </form>
 
-    <!-- Reactivate -->
     <form method="post" action="/admin/staff/{{ s.id }}/reactivate" class="inline">
       <button class="btn btn-primary" type="submit">Reactivate</button>
     </form>
