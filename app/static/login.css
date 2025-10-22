@@ -1,114 +1,132 @@
-/* login.css — scoped to the login page only */
-:root {
-  /* Pulling the Lindsay Park palette used on staff pages */
-  --lp-green: #153c2d;    /* deep green brand bar */
-  --lp-ivory: #f3f2ea;    /* warm background */
-  --lp-text:  #1f2937;    /* charcoal text */
-  --lp-muted: #6b7280;    /* muted helper text */
-  --lp-btn:   #184d37;    /* button green */
-  --lp-btn-h: #0f3a2a;    /* button hover */
-  --radius:   14px;
-  --shadow:   0 8px 24px rgba(15, 58, 42, 0.12);
+/* ===== Login screen (scoped) ===== */
+:root{
+  --lp-green:#173A2E;
+  --lp-gold:#CBB36B;
+  --lp-cream:#F3F2EB;
 }
 
-/* Full-height center layout */
-body.page.login {
-  min-height: 100dvh;
-  background: var(--lp-ivory);
-  color: var(--lp-text);
-  display: grid;
-  place-items: center;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-               Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
-               "Segoe UI Emoji";
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+body.page{
+  margin:0;
+  background:#f3f2ec;
+  color:#111;
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,"Noto Sans","Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
 }
 
-.login .container.narrow {
-  width: min(720px, 92vw);
-  padding: 24px 0;
+.container.narrow{
+  max-width: 920px;
+  margin: 48px auto;
+  padding: 0 20px;
 }
 
-/* Card */
-.login .card.form {
-  background: #fff;
-  border-radius: var(--radius);
-  padding: 28px;
-  box-shadow: var(--shadow);
-  border: 1px solid rgba(0,0,0,0.04);
+.card{
+  background:#fff;
+  border-radius:14px;
+  padding:28px;
+  box-shadow:0 10px 24px rgba(0,0,0,.06), 0 2px 6px rgba(0,0,0,.05);
+  border:1px solid rgba(0,0,0,.05);
 }
 
-/* Header */
-.login .header h1 {
-  margin: 0 0 6px;
-  font-weight: 800;
+.header h1{
+  margin:0 0 8px;
   font-size: 28px;
-  letter-spacing: 0.2px;
-}
-.login .header .sub {
-  margin: 0 0 18px;
-  color: var(--lp-muted);
+  line-height: 1.25;
+  color:#111827;
+  letter-spacing: .2px;
 }
 
-/* Field + input */
-.login .field { margin-top: 12px; }
-.login .label { display:block; font-size: 13px; font-weight: 600; margin: 0 0 6px; color: var(--lp-muted); }
-
-.login .input-wrap {
-  position: relative;
+.header .sub{
+  margin:0 0 18px;
+  color:#4b5563;
 }
 
-.login .input {
-  display: block;
-  width: 100%;
-  border: 1px solid #d6d6d6;
-  border-radius: 10px;
-  height: 44px;
-  padding: 10px 92px 10px 14px;
-  background: #f7f9ff;
-  outline: none;
-}
-.login .input:focus {
-  border-color: #c2d7ce;
-  box-shadow: 0 0 0 4px rgba(21, 60, 45, 0.12);
+/* field + input */
+.field{ margin:16px 0 6px; }
+
+.label{
+  display:block;
+  font-weight:600;
+  font-size:.92rem;
+  color:#374151;
+  margin:0 0 8px;
 }
 
-/* Show/Hide button */
-.login .pw-toggle {
-  position: absolute;
-  right: 6px;
-  top: 6px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid #cfd8d3;
-  background: #fff;
-  cursor: pointer;
+.input-wrap{
+  position:relative;
+  width:100%;
 }
-.login .pw-toggle:hover { background: #f4f7f6; }
-.login .pw-toggle .icon { width: 18px; height: 18px; }
-.login .pw-toggle .eye-off.hidden,
-.login .pw-toggle .eye.hidden { display: none; }
 
-.login .help { margin: 8px 2px 0; font-size: 12px; color: var(--lp-muted); }
-
-/* Actions */
-.login .actions { margin-top: 16px; }
-.login .btn.btn-primary {
-  background: var(--lp-btn);
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  height: 40px;
-  padding: 0 16px;
-  font-weight: 700;
-  cursor: pointer;
+/* The bug was overflow: ensure the input stays INSIDE the card */
+.input{
+  display:block;
+  width:100%;
+  height:44px;
+  padding:10px 44px 10px 14px;  /* room for eye button */
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  background:#f5f7ff;
+  outline:none;
+  transition:border-color .15s ease, box-shadow .15s ease;
 }
-.login .btn.btn-primary:hover { background: var(--lp-btn-h); }
 
-/* Footer */
-.login .madeby {
-  text-align: center;
-  color: var(--lp-muted);
-  margin-top: 18px;
-  font-size: 14px;
+.input:focus{
+  border-color:#cbd5e1;
+  box-shadow:0 0 0 3px rgba(23,58,46,.12);
+}
+
+/* Eye / Show button sits INSIDE the input */
+.pw-toggle{
+  position:absolute;
+  top:50%;
+  right:8px;
+  transform:translateY(-50%);
+  height:32px;
+  min-width:40px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:8px;
+  border:1px solid #e5e7eb;
+  background:#fff;
+  cursor:pointer;
+}
+.pw-toggle .icon{ width:18px; height:18px; }
+.hidden{ display:none; }
+
+.help{
+  margin-top:10px;
+  color:#6b7280;
+  font-size:.9rem;
+}
+
+/* actions */
+.actions{ margin-top:18px; }
+
+.btn{
+  -webkit-appearance:none; appearance:none;
+  display:inline-flex; align-items:center; justify-content:center;
+  gap:8px;
+  height:40px;
+  padding:0 16px;
+  border-radius:10px;
+  border:1px solid transparent;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.btn-primary{
+  background:var(--lp-green);
+  color:#fff;
+  box-shadow:0 4px 12px rgba(23,58,46,.18);
+}
+.btn-primary:hover{ filter:brightness(.98); }
+
+.madeby{
+  text-align:center;
+  color:#6b7280;
+  margin:16px 0 0;
+  font-size:.95rem;
 }
