@@ -2,16 +2,21 @@
 {% block title %}{{ s.display_name }}{% endblock %}
 
 {% block content %}
-  <h1 class="page-title">
-    {{ s.display_name }}
-    {% if not s.end_date %}
-      <span class="pill pill--ok">Active</span>
-    {% else %}
-      <span class="pill pill--bad">Inactive</span>
-    {% endif %}
-  </h1>
+  <!-- Title + status on the left, Edit button on the right -->
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem;">
+    <h1 class="page-title" style="margin:0;">
+      {{ s.display_name }}
+      {% if not s.end_date %}
+        <span class="pill pill--ok">Active</span>
+      {% else %}
+        <span class="pill pill--bad">Inactive</span>
+      {% endif %}
+    </h1>
 
-  <section class="card">
+    <a class="btn btn-secondary" href="/admin/staff/{{ s.id }}/edit">Edit</a>
+  </div>
+
+  <section class="card" style="margin-top:1rem;">
     <p><strong>Mobile:</strong> {{ s.mobile|phone_au }}</p>
     <p><strong>Email:</strong> {{ s.email or "—" }}</p>
     <p><strong>Start:</strong> {{ s.start_date }}</p>
